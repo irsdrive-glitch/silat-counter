@@ -7,31 +7,45 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#0c1424;--panel:#12203a;--ink:#f2f6ff;--muted:#8fa0c0;--lime:#d4ee3a;--lime-ink:#101a33;--orange:#ff7a3d;--teal:#2fc4b2}
+  :root{--bg:#0c1424;--ink:#f2f6ff;--muted:#c3cee6;--lime:#d4ee3a;--lime-ink:#101a33;--orange:#ff7a3d;--teal:#2fc4b2;
+    --glass:rgba(12,20,36,.38)}
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif}
-  body{display:flex;flex-direction:column;min-height:100dvh;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-  .stage{position:relative;width:100%;max-height:60dvh;aspect-ratio:3/4;margin:0 auto;background:#000;overflow:hidden}
-  video,canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
-  video{object-fit:cover}
-  .count{position:absolute;top:0;right:0;background:var(--lime);color:var(--lime-ink);font:800 clamp(64px,22vw,120px)/1 "Barlow Condensed",sans-serif;padding:6px 20px 2px;min-width:110px;text-align:center;font-style:italic}
-  .msg{position:absolute;inset:auto 0 40% 0;text-align:center;padding:0 24px;font-size:18px;text-shadow:0 1px 6px #000}
-  .panel{background:var(--panel);padding:14px 16px;display:grid;gap:12px}
-  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-  .stat small{display:block;color:var(--muted);font-size:13px}
-  .stat b{font:800 32px/1.1 "Barlow Condensed",sans-serif}
-  .stat b em{font:400 13px Barlow,sans-serif;color:var(--muted);font-style:normal}
-  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
-  input[type=text],input[type=number],select{width:100%;padding:12px;border-radius:8px;border:1px solid #2a3c61;background:var(--bg);color:var(--ink);font-size:16px}
+  html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:Barlow,system-ui,sans-serif;overflow:hidden}
+
+  /* Video memenuhi seluruh layar, tampil utuh (tidak terpotong) */
+  .stage{position:fixed;inset:0;background:#000}
+  video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transform:scaleX(-1)}
+
+  .count{position:absolute;top:env(safe-area-inset-top,0px);right:0;background:var(--lime);color:var(--lime-ink);
+    font:800 clamp(56px,18vw,110px)/1 "Barlow Condensed",sans-serif;padding:6px 18px 2px;min-width:96px;text-align:center;font-style:italic}
+  .msg{position:absolute;left:0;right:0;top:40%;text-align:center;padding:0 24px;font-size:18px;text-shadow:0 1px 6px #000}
+
+  /* Statistik transparan di atas video */
+  .hud{position:absolute;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
+    background:linear-gradient(to top,rgba(0,0,0,.55),rgba(0,0,0,0));display:grid;gap:10px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 8px;text-shadow:0 1px 5px #000}
+  .stat small{display:block;color:var(--muted);font-size:12px}
+  .stat b{font:800 26px/1.1 "Barlow Condensed",sans-serif}
+  .stat b em{font:400 12px Barlow,sans-serif;color:var(--muted);font-style:normal}
+
+  .bar{display:flex;gap:8px}
   button{padding:12px 18px;border:0;border-radius:8px;font:600 16px Barlow,sans-serif;cursor:pointer}
   button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
   #btnStart{background:var(--lime);color:var(--lime-ink);flex:1}
   #btnStart.on{background:var(--orange);color:#fff}
   #btnSave{background:var(--teal);color:#06231f}
+  #btnMenu{background:var(--glass);color:var(--ink);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
   button[disabled]{opacity:.45;cursor:not-allowed}
+
+  /* Pengaturan: tersembunyi, dibuka lewat tombol Atur */
+  .settings{display:none;gap:10px;padding:12px;border-radius:10px;background:var(--glass);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);max-height:45dvh;overflow:auto}
+  .settings.open{display:grid}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
   label{font-size:14px;color:var(--muted);display:grid;gap:4px;flex:1;min-width:130px}
-  .status{font-size:14px;color:var(--muted);min-height:1.2em}
-  @media (min-width:700px){.panel{max-width:760px;width:100%;margin:0 auto}}
+  input[type=text],input[type=number],select{width:100%;padding:10px;border-radius:8px;border:1px solid #2a3c61;background:rgba(12,20,36,.7);color:var(--ink);font-size:16px}
+  .status{font-size:14px;color:var(--ink);min-height:1.2em;text-shadow:0 1px 5px #000}
+  @media (min-width:700px){.hud{max-width:760px;margin:0 auto}}
   @media (prefers-reduced-motion:no-preference){.count.bump{animation:bump .18s}}
   @keyframes bump{50%{transform:scale(1.08)}}
 </style>
@@ -42,41 +56,47 @@
   <canvas id="canvas"></canvas>
   <div class="count" id="count">0</div>
   <div class="msg" id="msg">Memuat model deteksi gerak…</div>
-</div>
 
-<div class="panel">
-  <div class="stats">
-    <div class="stat"><small>Durasi</small><b id="time">00:00</b></div>
-    <div class="stat"><small>Tempo per menit</small><b id="tempo">0</b></div>
-    <div class="stat"><small>Jumlah</small><b id="count2">0</b></div>
-    <div class="stat"><small>Kecepatan terakhir</small><b><span id="spLast">–</span> <em>km/j</em></b></div>
-    <div class="stat"><small>Tercepat</small><b><span id="spMax">–</span> <em>km/j</em></b></div>
-    <div class="stat"><small>Rata-rata</small><b><span id="spAvg">–</span> <em>km/j</em></b></div>
+  <div class="hud">
+    <div class="stats">
+      <div class="stat"><small>Durasi</small><b id="time">00:00</b></div>
+      <div class="stat"><small>Tempo per menit</small><b id="tempo">0</b></div>
+      <div class="stat"><small>Jumlah</small><b id="count2">0</b></div>
+      <div class="stat"><small>Kecepatan terakhir</small><b><span id="spLast">–</span> <em>km/j</em></b></div>
+      <div class="stat"><small>Tercepat</small><b><span id="spMax">–</span> <em>km/j</em></b></div>
+      <div class="stat"><small>Rata-rata</small><b><span id="spAvg">–</span> <em>km/j</em></b></div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="settings" id="settings">
+      <div class="row">
+        <label>Jenis latihan
+          <select id="jenis">
+            <option value="depan">Tendangan depan</option>
+            <option value="sabit">Tendangan sabit</option>
+            <option value="t">Tendangan T</option>
+            <option value="belakang">Tendangan belakang</option>
+          </select>
+        </label>
+        <label>Tinggi badan (cm)
+          <input type="number" id="tinggi" value="165" min="100" max="220" inputmode="numeric">
+        </label>
+      </div>
+      <div class="row">
+        <label>Nama pesilat<input type="text" id="nama" placeholder="Nama" autocomplete="off"></label>
+        <label>Tinggi minimum tendangan
+          <input type="range" id="sens" min="-0.5" max="0.6" step="0.05" value="-0.1">
+        </label>
+      </div>
+    </div>
+
+    <div class="bar">
+      <button id="btnMenu" aria-expanded="false" aria-controls="settings">Atur</button>
+      <button id="btnStart" disabled>Mulai</button>
+      <button id="btnSave" disabled>Simpan</button>
+    </div>
   </div>
-  <div class="row">
-    <label>Jenis latihan
-      <select id="jenis">
-        <option value="depan">Tendangan depan</option>
-        <option value="sabit">Tendangan sabit</option>
-        <option value="t">Tendangan T</option>
-        <option value="belakang">Tendangan belakang</option>
-      </select>
-    </label>
-    <label>Tinggi badan (cm)
-      <input type="number" id="tinggi" value="165" min="100" max="220" inputmode="numeric">
-    </label>
-  </div>
-  <div class="row">
-    <label>Nama pesilat<input type="text" id="nama" placeholder="Nama" autocomplete="off"></label>
-    <button id="btnStart" disabled>Mulai</button>
-  </div>
-  <div class="row">
-    <label>Tinggi minimum tendangan
-      <input type="range" id="sens" min="-0.5" max="0.6" step="0.05" value="-0.1">
-    </label>
-    <button id="btnSave" disabled>Simpan hasil</button>
-  </div>
-  <div class="status" id="status"></div>
 </div>
 
 <script type="module">
@@ -119,7 +139,6 @@ async function init(){
     video.srcObject = stream;
     await video.play();
     W = canvas.width = video.videoWidth; H = canvas.height = video.videoHeight;
-    $("stage").style.aspectRatio = W + "/" + H;
     $("msg").textContent = TIPS[$("jenis").value];
     $("btnStart").disabled = false;
     loop();
@@ -218,6 +237,12 @@ function loop(){
 
 $("jenis").onchange = () => { if(!running) $("msg").textContent = TIPS[$("jenis").value]; };
 
+$("btnMenu").onclick = () => {
+  const open = $("settings").classList.toggle("open");
+  $("btnMenu").setAttribute("aria-expanded", open);
+  $("btnMenu").textContent = open ? "Tutup" : "Atur";
+};
+
 $("btnStart").onclick = () => {
   running = !running;
   const b = $("btnStart");
@@ -228,6 +253,7 @@ $("btnStart").onclick = () => {
     ["spLast","spMax","spAvg"].forEach(id => $(id).textContent = "–");
     $("msg").textContent = ""; b.textContent = "Selesai"; b.classList.add("on");
     $("btnSave").disabled = true; $("jenis").disabled = true; setStatus("");
+    $("settings").classList.remove("open"); $("btnMenu").textContent = "Atur"; $("btnMenu").setAttribute("aria-expanded", false);
   }else{
     b.textContent = "Mulai lagi"; b.classList.remove("on");
     $("btnSave").disabled = false; $("jenis").disabled = false;
@@ -236,7 +262,7 @@ $("btnStart").onclick = () => {
 
 $("btnSave").onclick = async () => {
   const nama = $("nama").value.trim();
-  if(!nama){ setStatus("Isi nama pesilat dulu."); return; }
+  if(!nama){ setStatus("Isi nama pesilat dulu (tombol Atur)."); return; }
   if(!SHEET_URL){ setStatus("URL Apps Script belum diisi di file index.html."); return; }
   const data = {
     nama, tanggal:new Date().toISOString(), jenis:NAMA_JENIS[$("jenis").value], durasi:$("time").textContent,
