@@ -416,8 +416,8 @@ $("roiMode").onchange = () => { roiMode = $("roiMode").value; autoRoiCur = null;
 // ---------- Rekam dan deteksi kejadian ----------
 const IDX = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28], BH = 1.6;   // BH: perkiraan tinggi tubuh (m)
 let REC = [[], []], mode = "contoh", REAL = null;
-const CUR = () => mode === "nyata" ? REAL : ROUNDS[ri];
-const srcTag = () => mode === "nyata" ? "(dari video)" : "(data contoh)";
+const CUR = () => mode === "nyata" ? REAL : mode === "kosong" ? { kt:[0, 0], kp:[0, 0], jr:[0, 0] } : ROUNDS[ri];
+const srcTag = () => mode === "nyata" ? "(dari video)" : mode === "kosong" ? "(belum dianalisis)" : "(data contoh)";
 const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 1; };
 const P = (s, n) => { const o = IDX.indexOf(n) * 3; return { x:s.k[o], y:s.k[o + 1], v:s.k[o + 2] }; };
 const mid = (a, b) => ({ x:(a.x + b.x) / 2, y:(a.y + b.y) / 2, v:Math.min(a.v, b.v) });
@@ -444,7 +444,7 @@ function recInfo(){
   const span = a[a.length - 1].s - a[0].s, rate = span > 0 ? a.length / span : 0;
   $("recInfo").textContent = "Terekam " + REC[0].length + " (Merah) dan " + REC[1].length + " (Biru) sampel, " + span.toFixed(1) + " detik, sekitar " + rate.toFixed(0) + " per detik." + (rate < 12 ? " Rekaman jarang: turunkan kecepatan putar." : "");
 }
-function clearRec(){ REC = [[], []]; mode = "contoh"; REAL = null; $("bRonde").disabled = false; EV = gen(ri); recInfo(); render(); }
+function clearRec(){ REC = [[], []]; REAL = null; mode = video.src ? "kosong" : "contoh"; $("bRonde").disabled = mode !== "contoh"; EV = mode === "contoh" ? gen(ri) : []; recInfo(); render(); }
 
 function analyze(){
   if(REC[0].length < 15 || REC[1].length < 15){ toast("Rekaman terlalu sedikit. Tandai kedua pesilat, lalu putar video."); return; }
@@ -513,7 +513,8 @@ function exportJson(){
   const blob = new Blob([JSON.stringify({ versi:1, video:{ w:W, h:H, durasi:dur() }, indeks:IDX, rekaman:{ Merah:REC[0], Biru:REC[1] }, kejadian:EV })], { type:"application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "rekaman-vsilat.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-$("bAn").onclick = analyze; $("bJson").onclick = exportJson; $("bClr").onclick = clearRec;
+$("bAn").onclick = analyze;
+video.addEventListener("ended", () => { if(mode !== "nyata" && REC[0].length >= 15 && REC[1].length >= 15) analyze(); }); $("bJson").onclick = exportJson; $("bClr").onclick = clearRec;
 
 // ---------- Panel kejadian ----------
 const JENIS = ["Tendangan", "Pukulan", "Jatuhan", "Bantingan"], SUB = { Tendangan:["depan", "sabit", "T"], Pukulan:["lurus", "bawah"] };
@@ -542,9 +543,9 @@ const evPos = e => e.sec !== undefined ? e.sec / dur() * 100 : e.t / NOM * 100;
 function jump(e){ if(!video.src) return toast("Unggah video untuk melompat ke momen ini."); video.pause(); video.currentTime = Math.max(0, evTime(e) - 1); }
 function render(){
   const n = ri + 1;
-  const lbl = mode === "nyata" ? "" : " ronde " + n;
+  const lbl = mode === "contoh" ? " ronde " + n : "";
   $("tlTitle").textContent = "Kejadian" + lbl + " " + srcTag(); $("sumTitle").textContent = "Ringkasan" + lbl + " " + srcTag(); $("pendTitle").textContent = "Perlu dikonfirmasi " + srcTag();
-  $("bRonde").textContent = mode === "nyata" ? "Data dari video" : "Ronde " + n + " dari 3";
+  $("bRonde").textContent = mode === "contoh" ? "Ronde " + n + " dari 3" : mode === "nyata" ? "Data dari video" : "Belum dianalisis";
   $("laneM").replaceChildren(); $("laneB").replaceChildren();
   EV.forEach(e => {
     const c = e.p === "Merah" ? "var(--merah)" : "var(--biru)", b = document.createElement("button");
@@ -553,7 +554,7 @@ function render(){
     b.onclick = () => jump(e); $(e.p === "Merah" ? "laneM" : "laneB").append(b);
   });
   const pend = EV.filter(e => e.st === "pend"), box = $("pend"); box.replaceChildren();
-  if(!pend.length){ const d = document.createElement("div"); d.className = "muted"; d.textContent = "Semua kejadian ronde ini sudah dicek."; box.append(d); }
+  if(!pend.length){ const d = document.createElement("div"); d.className = "muted"; d.textContent = mode === "kosong" ? "Belum ada kejadian. Tandai pesilat, putar video, lalu tekan Analisis kejadian." : "Semua kejadian sudah dicek."; box.append(d); }
   pend.slice(0, 2).forEach(e => {
     const row = document.createElement("div"), tx = document.createElement("div");
     row.className = "conf"; tx.className = "t"; tx.innerHTML = "<b>" + mmss(evTime(e)) + '</b> <span class="' + (e.p === "Merah" ? "m" : "b") + '">' + e.p + "</span><br>" + e.j.toLowerCase() + (e.sub ? " " + e.sub : "") + "?";
@@ -566,12 +567,12 @@ function render(){
     r.append(ok, no, ch); row.append(tx, r); box.append(row);
   });
   const R = CUR(), cnt = (p, j) => EV.filter(e => e.p === p && e.j === j).length;
-  const rows = [["Tendangan", cnt("Merah", "Tendangan"), cnt("Biru", "Tendangan")], ["Pukulan", cnt("Merah", "Pukulan"), cnt("Biru", "Pukulan")], ["Jatuhan", cnt("Merah", "Jatuhan"), cnt("Biru", "Jatuhan")], ["Bantingan *", cnt("Merah", "Bantingan"), cnt("Biru", "Bantingan")], ["Kec. tendangan maks ~", R.kt[0], R.kt[1]], ["Kec. pukulan maks ~", R.kp[0], R.kp[1]], ["Jarak tempuh (m) ~", R.jr[0], R.jr[1]]];
+  const rows = [["Tendangan", cnt("Merah", "Tendangan"), cnt("Biru", "Tendangan")], ["Pukulan", cnt("Merah", "Pukulan"), cnt("Biru", "Pukulan")], ["Jatuhan", cnt("Merah", "Jatuhan"), cnt("Biru", "Jatuhan")], ["Bantingan *", cnt("Merah", "Bantingan"), cnt("Biru", "Bantingan")], ["Kec. tendangan maks ~", R.kt[0] || "-", R.kt[1] || "-"], ["Kec. pukulan maks ~", R.kp[0] || "-", R.kp[1] || "-"], ["Jarak tempuh (m) ~", R.jr[0] || "-", R.jr[1] || "-"]];
   const tb = $("sum"); tb.replaceChildren();
   const h = tb.insertRow(); ["", "Merah", "Biru"].forEach((x, i) => { const c = document.createElement("th"); c.textContent = x; c.className = i === 1 ? "m" : i === 2 ? "b" : ""; h.append(c); });
   rows.forEach(r => { const tr = tb.insertRow(); r.forEach((v, i) => { const c = tr.insertCell(); c.textContent = v; if(i) c.className = "big"; }); });
   const tot = EV.filter(e => e.st !== "ok").length, done = EV.filter(e => e.st === "conf").length;
-  $("kTxt").textContent = done + " dari " + tot + " dikonfirmasi"; $("kBar").style.width = (tot ? done / tot * 100 : 100) + "%"; $("kSub").textContent = (tot - done) + " kejadian menunggu dicek";
+  $("kTxt").textContent = done + " dari " + tot + " dikonfirmasi"; $("kBar").style.width = (tot ? done / tot * 100 : 0) + "%"; $("kSub").textContent = (tot - done) + " kejadian menunggu dicek";
   sync();
 }
 $("bRonde").onclick = () => { ri = (ri + 1) % 3; EV = gen(ri); render(); };
