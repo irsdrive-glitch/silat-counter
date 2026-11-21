@@ -157,6 +157,18 @@
       </div>
       <small style="color:var(--muted)">Video hanya disimpan di perangkat ini dan tidak dikirim ke internet. Minta izin pesilat sebelum merekam.</small>
       <div class="row">
+        <label class="chk"><input type="checkbox" id="saring" checked> Saring gerakan ancang-ancang</label>
+        <label>Kecepatan minimum
+          <select id="speedMin">
+            <option value="0">Mati (hanya jangkauan)</option>
+            <option value="6" selected>Rendah (6 km/j)</option>
+            <option value="12">Sedang (12 km/j)</option>
+            <option value="20">Tinggi (20 km/j)</option>
+          </select>
+        </label>
+      </div>
+      <small style="color:var(--muted)">Aktif: kaki harus menjangkau penuh atau cukup cepat agar dihitung. Hitungan bertambah setelah kaki kembali turun.</small>
+      <div class="row">
         <label class="chk"><input type="checkbox" id="diagOn"> Tampilkan data deteksi (untuk uji)</label>
       </div>
       <div class="row">
@@ -415,12 +427,16 @@ function isSideView(lm){
 }
 // Rekam data di puncak tendangan (kaki paling tinggi)
 function trackKick(leg, m, lm){
-  const f = leg.f || (leg.f = { dy:-9, dx:0, ang:180, side:0, n:0, facing:1 });
-  f.n++; if(isSideView(lm)) f.side++;
+  const f = leg.f || (leg.f = { dy:-9, dx:0, ang:180, side:0, n:0, facing:1, facing0:Math.sign(faceDir) || 1, maxAng:0, maxReach:0 });
+  f.n++; f.maxAng = Math.max(f.maxAng, m.ang); f.maxReach = Math.max(f.maxReach, Math.hypot(m.dx, m.dy)); if(isSideView(lm)) f.side++;
   if(m.dy > f.dy){ f.dy = m.dy; f.dx = m.dx; f.ang = m.ang; f.facing = facingOf(lm); }
 }
 function classify(f){
-  if(camPos() === "samping" || (camPos() !== "depan" && f.side > f.n / 2) || f.side > f.n / 2) return f.dx * f.facing >= 0 ? "depan" : "belakang";   // tampak samping
+  if(camPos() === "samping" || f.side > f.n / 2){   // tampak samping
+    // arah hadap diambil sebelum tendangan (bukan saat puncak), karena kepala menoleh saat tendangan belakang
+    if(f.dx * f.facing0 < -0.15) return "belakang";
+    return f.maxAng < 135 ? "sabit" : "depan";       // lutut tetap menekuk = sabit, lutut sempat lurus = depan
+  }
   const ax = Math.abs(f.dx);                                                  // tampak depan
   const diag = camPos() === "diagonal";
   if(ax < (diag ? 0.5 : 0.35)) return "depan";
@@ -611,7 +627,11 @@ function toVideoXY(ev){
 }
 
 const NAMA_KAKI = ["Kiri", "Kanan"];   // indeks 0 = kaki kiri pesilat (landmark 23/25/27), 1 = kaki kanan (24/26/28)
-let cnt = [0, 0], other = [0, 0], speedsL = [[], []], heightsL = [[], []];
+const REACH_MIN = 0.75;   // jangkauan kaki minimum (satuan panjang kaki)
+const speedMin = () => parseFloat($("speedMin").value) || 0;   // kecepatan minimum (km/j), diatur di Atur
+const speedRescue = () => Math.max(18, speedMin() * 2);        // kecepatan sangat tinggi tetap lolos walau jangkauan kurang   // jangkauan kaki (satuan panjang kaki) dan kecepatan (km/j) minimum agar dihitung tendangan
+const saringOn = () => $("saring").checked;
+let ancang = [0, 0], cnt = [0, 0], other = [0, 0], speedsL = [[], []], heightsL = [[], []];
 const kakiSel = () => $("kaki").value;
 function kakiTip(){ const k = kakiSel(); return k === "auto" ? "" : " Hanya kaki " + k + " yang dihitung" + (camPos() === "samping" ? " (hadapkan kaki itu ke kamera)." : "."); }
 function kakiWarn(){
@@ -621,7 +641,8 @@ function kakiWarn(){
 }
 function showKaki(){
   const f = i => NAMA_KAKI[i] + " " + cnt[i] + (speedsL[i].length ? ", " + Math.round(Math.max(...speedsL[i])) + " km/j" : "") + (heightsL[i].length ? ", " + fmtCm(Math.max(...heightsL[i])) + " cm" : "");
-  $("kakiInfo").textContent = (cnt[0] + cnt[1]) ? f(0) + "   |   " + f(1) : "";
+  const anc = ancang[0] + ancang[1];
+  $("kakiInfo").textContent = ((cnt[0] + cnt[1]) ? f(0) + "   |   " + f(1) : "") + (anc && saringOn() ? (cnt[0] + cnt[1] ? "   |   " : "") + "ancang-ancang diabaikan " + anc : "");
 }
 let dgT = 0, dgFps = 0;
 function showDiag(lm, okLegs){
@@ -633,7 +654,7 @@ function showDiag(lm, okLegs){
   LEGS.forEach((leg, i) => {
     if(!okLegs[i]){ lines.push(NAMA_KAKI[i] + ": kurang terlihat (vis " + [leg.h, leg.k, leg.a].map(k => (lm[k].visibility ?? 1).toFixed(1)).join("/") + ")"); return; }
     const m = legMetrics(leg, lm), kk = type === "auto" ? m.dy > thr : isKick(type, leg, lm, thr);
-    lines.push(NAMA_KAKI[i] + ": dy " + m.dy.toFixed(2) + " maju " + (m.dx * fd).toFixed(2) + " sudut " + Math.round(m.ang) + " | cocok " + (kk ? "YA" : "tidak") + " | hit " + leg.hit + "/4" + (leg.up ? " | NAIK" : ""));
+    lines.push(NAMA_KAKI[i] + ": dy " + m.dy.toFixed(2) + " maju " + (m.dx * fd).toFixed(2) + " sudut " + Math.round(m.ang) + " jangkau " + Math.hypot(m.dx, m.dy).toFixed(2) + " | cocok " + (kk ? "YA" : "tidak") + " | hit " + leg.hit + "/4" + (leg.up ? " | NAIK puncak " + Math.round(leg.peak) + " km/j" : ""));
   });
   el.textContent = lines.join("\n"); el.hidden = false;
 }
@@ -705,7 +726,7 @@ function frame(){
               leg.hh.push(hitNow); if(leg.hh.length > 4) leg.hh.shift();
               leg.hit = leg.hh.filter(Boolean).length;
               if(hitNow && leg.hit >= 2 && now - leg.last > 300 && now - lastKickAt > 250){
-                leg.up = true; leg.peak = 0; leg.hit = 0; leg.hh = []; leg.last = lastKickAt = now; leg.f = null; leg.counted = isSel; trackKick(leg, legMetrics(leg, lm), lm); if(isSel) registerKick(li); else other[li]++;
+                leg.up = true; leg.peak = 0; leg.hit = 0; leg.hh = []; leg.last = lastKickAt = now; leg.f = null; leg.counted = isSel; trackKick(leg, legMetrics(leg, lm), lm); if(!saringOn()){ if(isSel) registerKick(li); else other[li]++; }
               }
             }else{
               leg.peak = Math.max(leg.peak, sp);
@@ -713,10 +734,15 @@ function frame(){
               // tendangan dianggap selesai hanya jika kaki turun jauh di bawah ambang (histeresis)
               if(!test(thr - margin)){
                 leg.up = false;
+                const kf = leg.f, filt = saringOn();
+                const valid = !filt || (kf && ((kf.maxReach >= REACH_MIN && leg.peak >= speedMin()) || leg.peak >= speedRescue()));
                 if(leg.counted){
-                  if(leg.peak > 0){ speeds.push(leg.peak); speedsL[li].push(leg.peak); showSpeeds(); checkRekor(leg.peak, now); }
-                  finishKick(leg, type, li);
-                }else leg.f = null;
+                  if(valid){
+                    if(filt) registerKick(li);
+                    if(leg.peak > 0){ speeds.push(leg.peak); speedsL[li].push(leg.peak); showSpeeds(); checkRekor(leg.peak, now); }
+                    finishKick(leg, type, li);
+                  }else{ leg.f = null; ancang[li]++; }
+                }else{ if(valid && filt) other[li]++; leg.f = null; }
                 leg.counted = false; showKaki();
               }
             }
@@ -759,6 +785,7 @@ $("kamera").onchange = async () => {
 };
 $("jenis").onchange = () => { if(!running){ $("msg").textContent = tip(); showKinds(); } updateGuide(); };
 $("posKamera").onchange = () => { if(!running) $("msg").textContent = tip(); updateGuide(); };
+$("saring").onchange = () => { $("speedMin").disabled = !saringOn(); };
 $("kaki").onchange = () => { if(!running) $("msg").textContent = tip(); };
 
 $("btnMenu").onclick = () => {
@@ -771,7 +798,7 @@ $("btnStart").onclick = () => {
   running = !running;
   const b = $("btnStart");
   if(running){
-    count = 0; kickTimes = []; speeds = []; LEGS.forEach(l => { l.up = false; l.hist = []; l.hit = 0; l.last = 0; l.f = null; l.hh = []; }); lastKickAt = 0; heights = []; cnt = [0, 0]; other = [0, 0]; speedsL = [[], []]; heightsL = [[], []]; LEGS.forEach(l => { l.counted = false; }); showKaki(); resetKinds(); gVal = 0; loadRekor(); if(!target && lastSel) lockOn(lastSel);
+    count = 0; kickTimes = []; speeds = []; LEGS.forEach(l => { l.up = false; l.hist = []; l.hit = 0; l.last = 0; l.f = null; l.hh = []; }); lastKickAt = 0; heights = []; cnt = [0, 0]; other = [0, 0]; ancang = [0, 0]; speedsL = [[], []]; heightsL = [[], []]; LEGS.forEach(l => { l.counted = false; }); showKaki(); resetKinds(); gVal = 0; loadRekor(); if(!target && lastSel) lockOn(lastSel);
     startAt = clock();
     $("count").textContent = $("count2").textContent = 0;
     ["spLast","spMax","spAvg","hLast","hMax"].forEach(id => $(id).textContent = "–");
@@ -831,7 +858,7 @@ $("gBody").innerHTML =
   '<div><svg viewBox="0 0 92 92"><use href="#td-terhalang"/></svg>Di belakang pemegang pad<p>Terhalang. Hindari posisi ini.</p></div></div></div>' +
   KICKS.map(k => '<div class="gcard"><h3>' + k[1] + '</h3><small>' + k[2] + '</small><svg class="kf" viewBox="0 56 270 140" aria-hidden="true"><use href="#k-' + k[0] + '"/></svg><p>' + k[3] + '<br>' + k[4] + '</p></div>').join("") +
   '<div class="gcard"><h3>Pengaturan kamera</h3><ul><li>Tinggi setinggi pinggul sampai dada pesilat, sekitar 1 sampai 1,2 meter.</li><li>Jarak sekitar 3 sampai 4 meter, pesilat dan pemegang pad terlihat utuh.</li><li>HP mendatar (landscape) dan di tripod yang stabil.</li><li>Cahaya terang dan merata, pesilat tidak membelakangi jendela atau lampu.</li><li>Pemegang pad sedikit di samping garis pandang kamera, supaya kaki pesilat tidak tertutup.</li><li>Pakai 60 frame per detik kalau HP mendukung.</li></ul></div>' +
-  '<div class="gcard"><h3>Tips</h3><ul><li>Pilihan Posisi kamera di Atur harus sama dengan posisi HP yang sebenarnya.</li><li>Jika ada orang lain di layar, jeda lalu ketuk pesilat untuk memilihnya (segitiga kuning).</li><li>Pilih jenis tendangan sendiri untuk hasil yang paling andal. Mode otomatis paling cocok untuk membedakan depan dan belakang dari samping.</li><li>Menu Kaki yang dihitung: pilih Kanan atau Kiri untuk drill satu kaki, atau Otomatis untuk kedua kaki. Dari kamera samping, hadapkan kaki yang dipilih ke kamera.</li><li>Analisis dari file video (di Atur): rekam dulu dengan kamera 60 fps, lalu analisis. Semua frame diproses, jadi hitungan paling akurat. Pilih Perangkat kamera di Atur untuk memakai kamera eksternal.</li><li>Uji akurasi: lakukan 20 tendangan, hitung manual, lalu bandingkan dengan layar.</li><li>Minta izin pesilat (dan orang tua atau wali untuk yang di bawah umur) sebelum merekam.</li></ul></div>';
+  '<div class="gcard"><h3>Tips</h3><ul><li>Pilihan Posisi kamera di Atur harus sama dengan posisi HP yang sebenarnya.</li><li>Jika ada orang lain di layar, jeda lalu ketuk pesilat untuk memilihnya (segitiga kuning).</li><li>Pilih jenis tendangan sendiri untuk hasil yang paling andal. Mode otomatis paling cocok untuk membedakan depan dan belakang dari samping.</li><li>Menu Kaki yang dihitung: pilih Kanan atau Kiri untuk drill satu kaki, atau Otomatis untuk kedua kaki. Dari kamera samping, hadapkan kaki yang dipilih ke kamera.</li><li>Analisis dari file video (di Atur): rekam dulu dengan kamera 60 fps, lalu analisis. Semua frame diproses, jadi hitungan paling akurat. Pilih Perangkat kamera di Atur untuk memakai kamera eksternal.</li><li>Saring gerakan ancang-ancang: gerakan kaki yang terangkat tetapi tidak menjangkau penuh atau tidak cukup cepat diabaikan. Kecepatan minimum bisa diatur (Mati, Rendah, Sedang, Tinggi); pilih Mati untuk latihan teknik pelan. Matikan kalau tendangan rendah atau pendek ikut terlewat.</li><li>Uji akurasi: lakukan 20 tendangan, hitung manual, lalu bandingkan dengan layar.</li><li>Minta izin pesilat (dan orang tua atau wali untuk yang di bawah umur) sebelum merekam.</li></ul></div>';
 const openGuide = () => { $("guide").hidden = false; $("guide").scrollTop = 0; $("gClose").focus(); };
 const closeGuide = () => { $("guide").hidden = true; $("btnGuide").focus(); };
 $("btnGuide").onclick = openGuide; $("gClose").onclick = closeGuide;
