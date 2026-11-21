@@ -68,6 +68,7 @@
   .big2{font:800 20px "Barlow Condensed",sans-serif}
   .ph{padding:40px 12px;text-align:center;color:var(--muted)}
   #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--lime);color:var(--lime-ink);padding:10px 16px;border-radius:8px;font-weight:600;display:none;max-width:90vw}
+input[type=number]{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit}
 </style>
 </head>
 <body>
@@ -102,7 +103,7 @@
       </div>
       <div class="pair">
         <div class="card"><h2>Peta arena (posisi asli di frame)</h2>
-          <div class="map"><i id="dM" style="background:radial-gradient(#ff5a4dcc,#ff5a4d33 70%,transparent)"></i><i id="dB" style="background:radial-gradient(#4d9bffcc,#4d9bff33 70%,transparent)"></i></div></div>
+          <div class="map" id="map"><i id="dM" style="background:radial-gradient(#ff5a4dcc,#ff5a4d33 70%,transparent)"></i><i id="dB" style="background:radial-gradient(#4d9bffcc,#4d9bff33 70%,transparent)"></i></div></div>
         <div class="card"><h2>Koreksi kejadian</h2><div class="big2" id="kTxt"></div><div class="prog"><b id="kBar"></b></div><div class="muted" id="kSub"></div></div>
       </div>
     </div>
@@ -121,6 +122,10 @@
           <select id="roiMode" style="width:100%;margin-top:6px"><option value="full">Area: seluruh frame</option><option value="manual">Area: manual (seret di video)</option><option value="auto">Area: otomatis (ikuti pesilat)</option></select>
         </details>
       </div>
+      <div class="card"><h2>Penanda lapangan</h2>
+        <div class="row" style="align-items:center"><label class="muted">Lebar <input id="aw" type="number" value="8" min="2" max="30" step="0.5" style="width:64px"> m</label><label class="muted">Panjang <input id="al" type="number" value="8" min="2" max="30" step="0.5" style="width:64px"> m</label></div>
+        <div class="row" style="margin-top:8px"><button id="bCal">Tandai sudut arena</button><button id="bCalX">Hapus</button></div>
+        <p class="muted" id="calInfo" style="margin:8px 0 0">Belum ditandai.</p></div>
       <div class="card"><h2>Deteksi otomatis</h2>
         <p class="muted" style="margin:0 0 8px">Tandai kedua pesilat, putar video dari awal sampai akhir (0,5x lebih akurat), lalu tekan Analisis.</p>
         <div class="row"><button id="bAn" class="pri">Analisis kejadian</button><select id="sens" aria-label="Sensitivitas"><option value="rendah">Sensitivitas rendah</option><option value="sedang" selected>Sensitivitas sedang</option><option value="tinggi">Sensitivitas tinggi</option></select></div>
@@ -258,7 +263,8 @@ function processFrame(counting){
 }
 function showMsg(){
   let m = "";
-  if(assigning) m = "Ketuk pesilat " + (assigning === "m" ? "Merah" : "Biru") + " di video";
+  if(calPts) m = "Ketuk sudut " + (calPts.length + 1) + " dari 4: " + CORNERS[calPts.length] + " (searah jarum jam)";
+  else if(assigning) m = "Ketuk pesilat " + (assigning === "m" ? "Merah" : "Biru") + " di video";
   else if(video.src && !targets.some(t => t.init)) m = "Belum ada pesilat ditandai. Tekan Tandai Merah, lalu ketuk pesilat sudut merah.";
   else if(roiMode === "manual" && !manualRoi) m = "Seret di video untuk memilih area deteksi";
   else if(targets.some(t => t.init && t.lost > 10)) m = targets.filter(t => t.init && t.lost > 10).map(t => t.name).join(" dan ") + " tidak terlacak";
@@ -275,6 +281,13 @@ function draw(cands){
   ctx.font = "700 " + fs + "px Barlow, sans-serif"; ctx.textBaseline = "alphabetic"; ctx.lineJoin = "round"; ctx.lineCap = "round";
   const r = roiMode === "manual" ? manualRoi : roiMode === "auto" ? (autoRoiCur || manualRoi) : null;
   if(r){ ctx.setLineDash([10, 8]); ctx.strokeStyle = "rgba(212,238,58,0.7)"; ctx.lineWidth = lw; ctx.strokeRect(r.x, r.y, r.w, r.h); ctx.setLineDash([]); }
+  const ap = calPts || (CAL && CAL.pts);
+  if(ap && ap.length){
+    ctx.setLineDash([12, 8]); ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = lw + 2; ctx.beginPath();
+    ap.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); if(ap.length === 4) ctx.closePath(); ctx.stroke();
+    ctx.strokeStyle = "rgba(212,238,58,0.9)"; ctx.lineWidth = lw; ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = "#d4ee3a"; ap.forEach(q => { ctx.beginPath(); ctx.arc(q[0], q[1], lw + 2, 0, 6.2832); ctx.fill(); });
+  }
   const marked = targets.some(t => t.init);
   if($("oOther").checked || !marked) cands.filter(c => c.owner < 0).forEach(c => {
     const w = c.box.x1 - c.box.x0, h2 = c.box.y1 - c.box.y0;
@@ -322,7 +335,10 @@ function drawMap(){
   [["dM", targets[0]], ["dB", targets[1]]].forEach(([id, t]) => {
     const el = $(id), ok = t.init && t.cand && t.floor && W;
     el.style.display = ok ? "block" : "none";
-    if(ok){ el.style.left = Math.min(100, Math.max(0, t.floor.x / W * 100)) + "%"; el.style.top = Math.min(100, Math.max(0, t.floor.y / H * 100)) + "%"; }
+    if(!ok) return;
+    let fx = t.floor.x / W, fy = t.floor.y / H;
+    if(CAL){ const m = hap(CAL.hp, t.floor.x, t.floor.y); fx = m[0] / CAL.wm; fy = m[1] / CAL.lm; }
+    el.style.left = Math.min(100, Math.max(0, fx * 100)) + "%"; el.style.top = Math.min(100, Math.max(0, fy * 100)) + "%";
   });
 }
 
@@ -352,7 +368,7 @@ $("file").onchange = e => {
   const f = e.target.files[0]; if(!f) return;
   if(videoURL) URL.revokeObjectURL(videoURL);
   videoURL = URL.createObjectURL(f); video.src = videoURL;
-  targets.forEach(t => Object.assign(t, mkT(t.name, t.color))); manualRoi = null; autoRoiCur = null; resetStats(); drawMap(); clearRec();
+  targets.forEach(t => Object.assign(t, mkT(t.name, t.color))); manualRoi = null; autoRoiCur = null; resetStats(); clearRec(); CAL = null; calPts = null; videoKey = f.name + ":" + f.size; loadCal(); drawMap();
   $("msg").textContent = "";
 };
 video.addEventListener("loadedmetadata", () => {
@@ -397,6 +413,11 @@ let drag = null;
 const pos = e => { const r = ov.getBoundingClientRect(), k = W / r.width; return { x:(e.clientX - r.left) * k, y:(e.clientY - r.top) * k }; };
 ov.addEventListener("pointerdown", e => {
   if(!W) return; const p = pos(e);
+  if(calPts){
+    calPts.push([p.x, p.y]);
+    if(calPts.length === 4){ const c = buildCal(calPts); calPts = null; if(c){ CAL = c; saveCal(); toast("Penanda lapangan tersimpan."); } else toast("Sudut tidak valid. Coba tandai ulang."); updateCalInfo(); }
+    showMsg(); draw(lastCands); drawMap(); return;
+  }
   if(assigning){ assignAt(p.x, p.y); return; }
   if(roiMode === "manual"){ ov.setPointerCapture(e.pointerId); drag = { x0:p.x, y0:p.y }; }
 });
@@ -413,8 +434,59 @@ ov.addEventListener("pointerup", () => {
 $("roiMode").onchange = () => { roiMode = $("roiMode").value; autoRoiCur = null; if(video.paused) processFrame(false); showMsg(); };
 ["oBox", "oSkel", "oEll", "oTrail", "oOther"].forEach(id => $(id).onchange = () => { if(video.paused && W) draw(lastCands); });
 
+// ---------- Penanda lapangan ----------
+let CAL = null, calPts = null, videoKey = "";   // CAL: sudut (piksel video), ukuran (m), matriks piksel<->meter
+const CORNERS = ["kiri jauh", "kanan jauh", "kanan dekat", "kiri dekat"];
+function solve(A, bb){
+  const n = bb.length, M = A.map((r, i) => r.concat(bb[i]));
+  for(let c = 0; c < n; c++){
+    let p = c; for(let r = c + 1; r < n; r++) if(Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    if(Math.abs(M[c][c]) < 1e-12) return null;
+    for(let r = 0; r < n; r++){ if(r === c) continue; const f = M[r][c] / M[c][c]; for(let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+function homog(src, dst){
+  const A = [], bb = [];
+  for(let i = 0; i < 4; i++){
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); bb.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); bb.push(v);
+  }
+  const s = solve(A, bb); return s && s.concat(1);
+}
+const hap = (m, x, y) => { const w = m[6] * x + m[7] * y + m[8]; return [(m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w]; };
+function buildCal(pts){
+  const wm = +$("aw").value || 8, lm = +$("al").value || 8, dst = [[0, 0], [wm, 0], [wm, lm], [0, lm]];
+  const hp = homog(pts, dst), hm = homog(dst, pts);
+  return hp && hm && hp.every(isFinite) && hm.every(isFinite) ? { pts, wm, lm, hp, hm } : null;
+}
+function ppm(x, y){   // piksel per meter di titik lantai itu, searah lebar gambar
+  if(!CAL) return 0;
+  const [mx, my] = hap(CAL.hp, x, y), A = hap(CAL.hm, mx + 0.5, my), B = hap(CAL.hm, mx - 0.5, my), C = hap(CAL.hm, mx, my + 0.5), D = hap(CAL.hm, mx, my - 0.5);
+  const vx = [A[0] - B[0], A[1] - B[1]], vy = [C[0] - D[0], C[1] - D[1]];
+  const v = Math.abs(vx[0]) / (Math.hypot(...vx) || 1) >= Math.abs(vy[0]) / (Math.hypot(...vy) || 1) ? vx : vy, r = Math.hypot(...v);
+  return isFinite(r) ? r : 0;
+}
+function updateCalInfo(){
+  $("calInfo").textContent = CAL ? "Arena " + CAL.wm + " x " + CAL.lm + " m sudah ditandai. Kecepatan, jarak, dan peta arena dihitung dalam meter." : "Belum ditandai. Tanpa penanda, ukuran dihitung dari tinggi tubuh (kurang akurat).";
+  const m = $("map");
+  if(CAL){ m.style.height = "130px"; m.style.width = Math.round(130 * CAL.wm / CAL.lm) + "px"; m.style.margin = "0 auto"; } else { m.style.height = "90px"; m.style.width = "auto"; m.style.margin = "0"; }
+}
+function saveCal(){ try{ if(CAL && videoKey) localStorage.setItem("vsilat.arena." + videoKey, JSON.stringify({ pts:CAL.pts, w:CAL.wm, l:CAL.lm })); }catch(e){} }
+function loadCal(){
+  try{
+    const s = JSON.parse(localStorage.getItem("vsilat.arena." + videoKey) || "null");
+    if(s){ $("aw").value = s.w; $("al").value = s.l; CAL = buildCal(s.pts); }
+  }catch(e){}
+  updateCalInfo();
+}
+$("bCal").onclick = () => { if(!video.src) return toast("Unggah video dulu."); video.pause(); assigning = null; syncAssignUI(); calPts = []; showMsg(); draw(lastCands); };
+$("bCalX").onclick = () => { CAL = null; calPts = null; try{ localStorage.removeItem("vsilat.arena." + videoKey); }catch(e){} updateCalInfo(); showMsg(); drawMap(); if(W) draw(lastCands); };
+
 // ---------- Rekam dan deteksi kejadian ----------
-const IDX = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28], BH = 1.6;   // BH: perkiraan tinggi tubuh (m)
+const IDX = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28], BH = 1.6;   // BH: perkiraan tinggi tubuh (m)
 let REC = [[], []], mode = "contoh", REAL = null;
 const CUR = () => mode === "nyata" ? REAL : mode === "kosong" ? { kt:[0, 0], kp:[0, 0], jr:[0, 0] } : ROUNDS[ri];
 const srcTag = () => mode === "nyata" ? "(dari video)" : mode === "kosong" ? "(belum dianalisis)" : "(data contoh)";
@@ -450,33 +522,48 @@ function analyze(){
   if(REC[0].length < 15 || REC[1].length < 15){ toast("Rekaman terlalu sedikit. Tandai kedua pesilat, lalu putar video."); return; }
   const mult = { rendah:1.3, sedang:1, tinggi:0.75 }[$("sens").value];
   const out = [], kt = [0, 0], kp = [0, 0], jr = [0, 0];
+  const dst = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+  const deg = (u, v) => { const d = Math.hypot(u.x, u.y) * Math.hypot(v.x, v.y); return d ? Math.acos(Math.max(-1, Math.min(1, (u.x * v.x + u.y * v.y) / d))) * 180 / Math.PI : 180; };
   for(let i = 0; i < 2; i++){
-    const a = REC[i], b = REC[1 - i], me = targets[i].name, op = targets[1 - i].name, sz = median(a.map(s => s.sz));
-    // jarak tempuh: jalur pinggul yang dihaluskan, diambil tiap 0,25 detik
-    const hp = a.map(s => hipOf(s)); let prev = null, dist = 0;
-    hp.forEach((h, k) => {
-      if(h.v < 0.3) return;
-      const w = hp.slice(Math.max(0, k - 2), k + 3).filter(q => q.v >= 0.3), x = w.reduce((q, r) => q + r.x, 0) / w.length, y = w.reduce((q, r) => q + r.y, 0) / w.length;
-      if(!prev || a[k].s - prev.s >= 0.25){ if(prev) dist += Math.hypot(x - prev.x, y - prev.y); prev = { x, y, s:a[k].s }; }
+    const a = REC[i], b = REC[1 - i], me = targets[i].name, op = targets[1 - i].name, szm = median(a.map(s => s.sz));
+    const hp = a.map(hipOf);
+    // acuan lantai: pergelangan kaki terendah saat tubuh tegak, dipertahankan selama pesilat di lantai
+    let lastY = null;
+    const fy = a.map(s => {
+      const an = [27, 28].map(n => P(s, n)).filter(p => p.v > 0.3), c = mid(P(s, 11), P(s, 12)), h2 = hipOf(s);
+      if(an.length && c.v > 0.3 && h2.v > 0.3 && Math.atan2(Math.abs(c.x - h2.x), Math.abs(c.y - h2.y)) * 57.3 < 35) lastY = Math.max(...an.map(p => p.y));
+      return lastY;
     });
-    jr[i] = Math.round(dist * BH / sz);
+    const fyv = k => fy[k] ?? hp[k].y + 0.5 * szm;
+    // skala (piksel per tinggi tubuh): dari penanda lapangan bila ada, jika tidak dari ukuran tubuh
+    const scs = a.map((s, k) => { const m = CAL ? ppm(hp[k].x, fyv(k)) : 0; return m > 5 ? m * BH : szm; });
+    // jarak tempuh
+    let prev = null, dist = 0;
+    a.forEach((s, k) => {
+      if(hp[k].v < 0.3) return;
+      if(prev && s.s - prev.s > 2) prev = null;
+      const w = hp.slice(Math.max(0, k - 2), k + 3).filter(q => q.v >= 0.3), x = w.reduce((q, r) => q + r.x, 0) / w.length;
+      const m = CAL ? hap(CAL.hp, x, fyv(k)) : [x, fyv(k)];
+      if(!prev || s.s - prev.s >= 0.25){ if(prev) dist += Math.hypot(m[0] - prev.x, m[1] - prev.y) * (CAL ? 1 : BH / szm); prev = { x:m[0], y:m[1], s:s.s }; }
+    });
+    jr[i] = Math.round(dist);
     // pukulan (pergelangan tangan) dan tendangan (pergelangan kaki)
     [[[15, 16], "Pukulan", 3.0, 0.4], [[27, 28], "Tendangan", 3.5, 0.6]].forEach(([limbs, jenis, thr0, gap]) => {
       const thr = thr0 * mult, cands = [];
       limbs.forEach(L => {
         const other = limbs[0] === L ? limbs[1] : limbs[0];
-        const rel = a.map(s => { const h = hipOf(s), p = P(s, L); return (h.v > 0.3 && p.v > 0.3) ? { x:p.x - h.x, y:p.y - h.y } : null; });
+        const rel = a.map(s => { const h2 = hipOf(s), p = P(s, L); return (h2.v > 0.3 && p.v > 0.3) ? { x:p.x - h2.x, y:p.y - h2.y } : null; });
         const sp = new Array(a.length).fill(0), tw = new Array(a.length).fill(0);
         for(let k = 1; k < a.length - 1; k++){
           const r0 = rel[k - 1], r1 = rel[k + 1], dt = a[k + 1].s - a[k - 1].s;
           if(!r0 || !r1 || dt < 0.03 || dt > 0.4) continue;
-          const vx = (r1.x - r0.x) / dt / sz, vy = (r1.y - r0.y) / dt / sz, v = Math.hypot(vx, vy);
-          const h = hipOf(a[k]), ho = hipOf(near(b, a[k].s)), ux = ho.x - h.x, uy = ho.y - h.y, un = Math.hypot(ux, uy) || 1;
-          sp[k] = v; tw[k] = v ? (vx * ux + vy * uy) / un / v : 0;   // tw: seberapa searah dengan lawan (−1 sampai 1)
+          const vx = (r1.x - r0.x) / dt / scs[k], vy = (r1.y - r0.y) / dt / scs[k], v = Math.hypot(vx, vy);
+          const ho = hipOf(near(b, a[k].s)), ux = ho.x - hp[k].x, uy = ho.y - hp[k].y, un = Math.hypot(ux, uy) || 1;
+          sp[k] = v; tw[k] = v ? (vx * ux + vy * uy) / un / v : 0;
         }
-        const raised = k => { for(let q = Math.max(0, k - 2); q <= Math.min(a.length - 1, k + 2); q++){ if((P(a[q], other).y - P(a[q], L).y) / sz > 0.05) return true; } return false; };
+        const raised = k => { for(let q = Math.max(0, k - 2); q <= Math.min(a.length - 1, k + 2); q++){ if((P(a[q], other).y - P(a[q], L).y) / scs[q] > 0.05) return true; } return false; };
         for(let k = 1; k < a.length - 1; k++){
-          if(sp[k] > thr && sp[k] >= sp[k - 1] && sp[k] >= sp[k + 1] && tw[k] > 0.35 && (jenis === "Pukulan" || raised(k))) cands.push({ s:a[k].s, sp:sp[k], tw:tw[k], u:a[k].u });
+          if(sp[k] > thr && sp[k] >= sp[k - 1] && sp[k] >= sp[k + 1] && tw[k] > 0.35 && (jenis === "Pukulan" || raised(k))) cands.push({ s:a[k].s, sp:sp[k], tw:tw[k], u:a[k].u, k, L });
         }
       });
       cands.sort((x, y) => y.sp - x.sp);
@@ -484,40 +571,59 @@ function analyze(){
       kept.forEach(c => {
         const kmh = Math.round(c.sp * BH * 3.6), arr = jenis === "Pukulan" ? kp : kt;
         arr[i] = Math.max(arr[i], kmh);
-        out.push({ p:me, j:jenis, sec:c.s, sub:"", kmh, st:(c.sp < thr * 1.4 || c.tw < 0.5 || c.u) ? "pend" : "ok" });
+        let sub = "", unsure = false;
+        if(jenis === "Tendangan"){
+          // jenis tendangan dari sikap tubuh dan sudut lutut saat kecepatan puncak (perkiraan dari kamera 2D)
+          const s = a[c.k], sl = P(s, 11), sr = P(s, 12), sc = mid(sl, sr), nose = P(s, 0), z = scs[c.k];
+          const dirx = hipOf(near(b, s.s)).x >= hp[c.k].x ? 1 : -1;
+          const face = nose.v > 0.5 && Math.abs(nose.x - sc.x) / z > 0.03 ? Math.sign(nose.x - sc.x) * dirx : 0;
+          const spread = Math.abs(sl.x - sr.x) / z;
+          const hipP = P(s, c.L === 27 ? 23 : 24), knee = P(s, c.L === 27 ? 25 : 26), ank = P(s, c.L);
+          const ang = deg({ x:hipP.x - knee.x, y:hipP.y - knee.y }, { x:ank.x - knee.x, y:ank.y - knee.y });
+          if(face < 0) sub = "belakang";
+          else if(spread > 0.15){ sub = "T"; unsure = spread < 0.19; }
+          else if(ang < 150){ sub = "sabit"; unsure = ang > 140; }
+          else { sub = "lurus"; unsure = ang < 160; }
+        }
+        out.push({ p:me, j:jenis, sec:c.s, sub, kmh, st:(c.sp < thr * 1.4 || c.tw < 0.5 || c.u || unsure) ? "pend" : "ok" });
       });
     });
-    // jatuhan: batang tubuh miring lebih dari 60 derajat selama minimal 0,5 detik
-    const lie = a.map(s => {
-      const sh = mid(P(s, 11), P(s, 12)), h = hipOf(s);
-      if(sh.v > 0.3 && h.v > 0.3) return Math.atan2(Math.abs(sh.x - h.x), Math.abs(sh.y - h.y)) * 180 / Math.PI > 60;
-      return s.bw > 1.2 * s.bh;
-    });
+    // jatuhan: bagian tubuh dari pinggang ke atas (bahu) menyentuh lantai, setelah kontak dengan lawan
+    const shh = a.map((s, k) => { const c = mid(P(s, 11), P(s, 12)); return c.v > 0.3 ? (fyv(k) - c.y) / scs[k] : null; });   // tinggi bahu dari lantai, satuan tinggi tubuh
+    const lie = shh.map(v => v !== null && v < 0.28);   // 0,28 x 1,6 m = sekitar 0,45 m
     const runs = [];
     a.forEach((s, k) => { if(!lie[k]) return; const last = runs[runs.length - 1]; if(last && s.s - a[last.e].s < 0.5) last.e = k; else runs.push({ b:k, e:k }); });
-    runs.filter(r => a[r.e].s - a[r.b].s >= 0.5).forEach(r => {
-      const s0 = a[r.b].s; let close = 0;
-      a.forEach(s => {
-        if(s.s < s0 - 1.5 || s.s > s0) return;
-        const h1 = hipOf(s), h2 = hipOf(near(b, s.s));
-        if(h1.v > 0.3 && h2.v > 0.3 && Math.hypot(h1.x - h2.x, h1.y - h2.y) / sz < 0.8) close++;
+    runs.filter(r => a[r.e].s - a[r.b].s >= 0.3).forEach(r => {
+      const s0 = a[r.b].s; let contact = 0, close = 0;
+      a.forEach((s, k) => {
+        if(s.s < s0 - 1.2 || s.s > s0 + 0.2) return;
+        const o = near(b, s.s), tor = mid(mid(P(s, 11), P(s, 12)), hp[k]), hd = dst(hp[k], hipOf(o)) / scs[k];
+        if(hd < 0.6) close++;
+        if(hd < 0.45 || [15, 16, 27, 28].some(n => { const q = P(o, n); return q.v > 0.3 && dst(q, tor) / scs[k] < 0.35; })) contact++;
       });
-      out.push({ p:me, j:"Jatuhan", sec:s0, sub:"", st:"pend" });
-      if(close >= 2) out.push({ p:op, j:"Bantingan", sec:s0, sub:"", st:"pend" });   // jatuh setelah kontak dekat: kandidat bantingan lawan
+      out.push({ p:me, j:"Jatuhan", sec:s0, sub:contact ? "" : "tanpa kontak", st:"pend" });
+      if(close >= 2 && contact) out.push({ p:op, j:"Bantingan", sec:s0, sub:"", st:"pend" });
     });
+    // pesilat hilang dari pelacakan saat sudah rendah (sering terjadi bila terbaring)
+    for(let k = 1; k < a.length; k++){
+      const g = a[k].s - a[k - 1].s;
+      if(g < 0.6 || g > 4 || shh[k - 1] === null || shh[k - 1] > 0.5) continue;
+      if(runs.some(r => a[r.b].s > a[k - 1].s - 1.5 && a[r.b].s < a[k].s)) continue;
+      out.push({ p:me, j:"Jatuhan", sec:a[k - 1].s, sub:"pesilat hilang", st:"pend" });
+    }
   }
   EV = out.sort((x, y) => x.sec - y.sec); REAL = { kt, kp, jr }; mode = "nyata"; $("bRonde").disabled = true;
   render(); toast(EV.length + " kejadian terdeteksi. Cek yang bergaris kosong.");
 }
 function exportJson(){
-  const blob = new Blob([JSON.stringify({ versi:1, video:{ w:W, h:H, durasi:dur() }, indeks:IDX, rekaman:{ Merah:REC[0], Biru:REC[1] }, kejadian:EV })], { type:"application/json" });
+  const blob = new Blob([JSON.stringify({ versi:1, video:{ w:W, h:H, durasi:dur() }, indeks:IDX, lapangan:CAL ? { sudut:CAL.pts, lebar:CAL.wm, panjang:CAL.lm } : null, rekaman:{ Merah:REC[0], Biru:REC[1] }, kejadian:EV })], { type:"application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "rekaman-vsilat.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 $("bAn").onclick = analyze;
 video.addEventListener("ended", () => { if(mode !== "nyata" && REC[0].length >= 15 && REC[1].length >= 15) analyze(); }); $("bJson").onclick = exportJson; $("bClr").onclick = clearRec;
 
 // ---------- Panel kejadian ----------
-const JENIS = ["Tendangan", "Pukulan", "Jatuhan", "Bantingan"], SUB = { Tendangan:["depan", "sabit", "T"], Pukulan:["lurus", "bawah"] };
+const JENIS = ["Tendangan", "Pukulan", "Jatuhan", "Bantingan"], SUB = { Tendangan:["lurus", "sabit", "T", "belakang"], Pukulan:["lurus", "bawah"] };
 const ROUNDS = [
   { m:[15, 20, 0, 1], b:[12, 18, 1, 0], kt:[46, 42], kp:[30, 27], jr:[58, 55], flag:28, conf:28 },
   { m:[18, 22, 1, 0], b:[14, 19, 0, 1], kt:[48, 44], kp:[31, 28], jr:[62, 58], flag:31, conf:24 },
@@ -549,7 +655,7 @@ function render(){
   $("laneM").replaceChildren(); $("laneB").replaceChildren();
   EV.forEach(e => {
     const c = e.p === "Merah" ? "var(--merah)" : "var(--biru)", b = document.createElement("button");
-    b.className = "mk"; b.style.left = evPos(e) + "%"; b.setAttribute("aria-label", e.p + " " + e.j); b.title = e.p + " " + e.j + " " + mmss(evTime(e));
+    b.className = "mk"; b.style.left = evPos(e) + "%"; b.setAttribute("aria-label", e.p + " " + e.j); b.title = e.p + " " + e.j + (e.sub ? " " + e.sub : "") + " " + mmss(evTime(e));
     b.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12">' + SHAPE[e.j] + ' fill="' + (e.st === "pend" ? "none" : c) + '" stroke="' + c + '" stroke-width="1.6"/></svg>';
     b.onclick = () => jump(e); $(e.p === "Merah" ? "laneM" : "laneB").append(b);
   });
@@ -563,11 +669,14 @@ function render(){
     const ok = document.createElement("button"); ok.className = "ok"; ok.textContent = "Benar"; ok.onclick = () => { e.st = "conf"; render(); toast("Dikonfirmasi: " + e.p + " " + e.j); };
     const no = document.createElement("button"); no.textContent = "Salah"; no.onclick = () => { EV.splice(EV.indexOf(e), 1); render(); toast("Kejadian dihapus"); };
     const ch = document.createElement("button"); ch.textContent = "Ubah jenis";
-    ch.onclick = () => r.replaceChildren(...JENIS.map(j => { const x = document.createElement("button"); x.textContent = j; x.onclick = () => { e.j = j; e.sub = ""; e.st = "conf"; render(); toast("Diubah menjadi " + j.toLowerCase()); }; return x; }));
+    ch.onclick = () => {
+      const opts = (e.j === "Tendangan" ? ["lurus", "sabit", "T", "belakang"].map(s => ["Tendangan", s]) : []).concat(JENIS.filter(j => j !== e.j || e.j !== "Tendangan").filter(j => j !== "Tendangan" || e.j !== "Tendangan").map(j => [j, ""]));
+      r.replaceChildren(...opts.map(([j, s]) => { const x = document.createElement("button"); x.textContent = s ? "Tendangan " + s : j; x.onclick = () => { e.j = j; e.sub = s; e.st = "conf"; render(); toast("Diubah menjadi " + (j + " " + s).trim().toLowerCase()); }; return x; }));
+    };
     r.append(ok, no, ch); row.append(tx, r); box.append(row);
   });
-  const R = CUR(), cnt = (p, j) => EV.filter(e => e.p === p && e.j === j).length;
-  const rows = [["Tendangan", cnt("Merah", "Tendangan"), cnt("Biru", "Tendangan")], ["Pukulan", cnt("Merah", "Pukulan"), cnt("Biru", "Pukulan")], ["Jatuhan", cnt("Merah", "Jatuhan"), cnt("Biru", "Jatuhan")], ["Bantingan *", cnt("Merah", "Bantingan"), cnt("Biru", "Bantingan")], ["Kec. tendangan maks ~", R.kt[0] || "-", R.kt[1] || "-"], ["Kec. pukulan maks ~", R.kp[0] || "-", R.kp[1] || "-"], ["Jarak tempuh (m) ~", R.jr[0] || "-", R.jr[1] || "-"]];
+  const R = CUR(), cnt = (p, j) => EV.filter(e => e.p === p && e.j === j).length, cs = (p, s) => EV.filter(e => e.p === p && e.j === "Tendangan" && e.sub === s).length;
+  const rows = [["Tendangan", cnt("Merah", "Tendangan"), cnt("Biru", "Tendangan")], ["- lurus", cs("Merah", "lurus"), cs("Biru", "lurus")], ["- sabit", cs("Merah", "sabit"), cs("Biru", "sabit")], ["- T", cs("Merah", "T"), cs("Biru", "T")], ["- belakang", cs("Merah", "belakang"), cs("Biru", "belakang")], ["Pukulan", cnt("Merah", "Pukulan"), cnt("Biru", "Pukulan")], ["Jatuhan", cnt("Merah", "Jatuhan"), cnt("Biru", "Jatuhan")], ["Bantingan *", cnt("Merah", "Bantingan"), cnt("Biru", "Bantingan")], ["Kec. tendangan maks ~", R.kt[0] || "-", R.kt[1] || "-"], ["Kec. pukulan maks ~", R.kp[0] || "-", R.kp[1] || "-"], ["Jarak tempuh (m) ~", R.jr[0] || "-", R.jr[1] || "-"]];
   const tb = $("sum"); tb.replaceChildren();
   const h = tb.insertRow(); ["", "Merah", "Biru"].forEach((x, i) => { const c = document.createElement("th"); c.textContent = x; c.className = i === 1 ? "m" : i === 2 ? "b" : ""; h.append(c); });
   rows.forEach(r => { const tr = tb.insertRow(); r.forEach((v, i) => { const c = tr.insertCell(); c.textContent = v; if(i) c.className = "big"; }); });
