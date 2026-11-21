@@ -76,7 +76,7 @@ input[type=number]{background:var(--panel);color:var(--ink);border:1px solid var
   <div class="top">
     <h1><b>V</b>-Silat <small>Analisis</small></h1>
     <nav id="tabs" role="tablist"></nav>
-    <div class="acts"><button id="bRonde">Ronde 2 dari 3</button><label class="btn pri">Unggah<input type="file" id="file" accept="video/*" hidden></label></div>
+    <div class="acts"><button id="bRonde" disabled>Belum dianalisis</button><label class="btn pri">Unggah<input type="file" id="file" accept="video/*" hidden></label></div>
   </div>
 
   <div id="pg-Video" class="layout">
@@ -93,7 +93,7 @@ input[type=number]{background:var(--panel);color:var(--ink);border:1px solid var
       <div id="status" role="status">Memuat model deteksi…</div>
 
       <div class="card">
-        <h2 id="tlTitle">Kejadian ronde 2 (data contoh)</h2>
+        <h2 id="tlTitle">Kejadian (belum dianalisis)</h2>
         <div class="tl">
           <span class="n m">Merah</span><div class="lane" id="laneM"></div>
           <span class="n b">Biru</span><div class="lane" id="laneB"></div>
@@ -131,8 +131,8 @@ input[type=number]{background:var(--panel);color:var(--ink);border:1px solid var
         <div class="row"><button id="bAn" class="pri">Analisis kejadian</button><select id="sens" aria-label="Sensitivitas"><option value="rendah">Sensitivitas rendah</option><option value="sedang" selected>Sensitivitas sedang</option><option value="tinggi">Sensitivitas tinggi</option></select></div>
         <div class="row" style="margin-top:8px"><button id="bJson">Unduh rekaman (JSON)</button><button id="bClr">Hapus rekaman</button></div>
         <div class="muted" id="recInfo" style="margin-top:8px">Rekaman kosong.</div></div>
-      <div class="card"><h2 id="pendTitle">Perlu dikonfirmasi (data contoh)</h2><div id="pend"></div></div>
-      <div class="card"><h2 id="sumTitle">Ringkasan ronde 2 (data contoh)</h2><table id="sum"></table>
+      <div class="card"><h2 id="pendTitle">Perlu dikonfirmasi (belum dianalisis)</h2><div id="pend"></div></div>
+      <div class="card"><h2 id="sumTitle">Ringkasan (belum dianalisis)</h2><table id="sum"></table>
         <p class="muted" style="margin:8px 0 0">* dikonfirmasi manual<br>~ perkiraan, km/j dan meter</p></div>
     </div>
   </div>
@@ -487,7 +487,7 @@ $("bCalX").onclick = () => { CAL = null; calPts = null; try{ localStorage.remove
 
 // ---------- Rekam dan deteksi kejadian ----------
 const IDX = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28], BH = 1.6;   // BH: perkiraan tinggi tubuh (m)
-let REC = [[], []], mode = "contoh", REAL = null;
+let REC = [[], []], mode = "kosong", REAL = null;
 const CUR = () => mode === "nyata" ? REAL : mode === "kosong" ? { kt:[0, 0], kp:[0, 0], jr:[0, 0] } : ROUNDS[ri];
 const srcTag = () => mode === "nyata" ? "(dari video)" : mode === "kosong" ? "(belum dianalisis)" : "(data contoh)";
 const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 1; };
@@ -516,7 +516,7 @@ function recInfo(){
   const span = a[a.length - 1].s - a[0].s, rate = span > 0 ? a.length / span : 0;
   $("recInfo").textContent = "Terekam " + REC[0].length + " (Merah) dan " + REC[1].length + " (Biru) sampel, " + span.toFixed(1) + " detik, sekitar " + rate.toFixed(0) + " per detik." + (rate < 12 ? " Rekaman jarang: turunkan kecepatan putar." : "");
 }
-function clearRec(){ REC = [[], []]; REAL = null; mode = video.src ? "kosong" : "contoh"; $("bRonde").disabled = mode !== "contoh"; EV = mode === "contoh" ? gen(ri) : []; recInfo(); render(); }
+function clearRec(){ REC = [[], []]; REAL = null; mode = "kosong"; $("bRonde").disabled = true; EV = []; recInfo(); render(); }
 
 function analyze(){
   if(REC[0].length < 15 || REC[1].length < 15){ toast("Rekaman terlalu sedikit. Tandai kedua pesilat, lalu putar video."); return; }
@@ -660,7 +660,7 @@ function render(){
     b.onclick = () => jump(e); $(e.p === "Merah" ? "laneM" : "laneB").append(b);
   });
   const pend = EV.filter(e => e.st === "pend"), box = $("pend"); box.replaceChildren();
-  if(!pend.length){ const d = document.createElement("div"); d.className = "muted"; d.textContent = mode === "kosong" ? "Belum ada kejadian. Tandai pesilat, putar video, lalu tekan Analisis kejadian." : "Semua kejadian sudah dicek."; box.append(d); }
+  if(!pend.length){ const d = document.createElement("div"); d.className = "muted"; d.textContent = mode === "kosong" ? (video.src ? "Belum ada kejadian. Tandai pesilat, putar video, lalu tekan Analisis kejadian." : "Unggah video pertandingan untuk memulai.") : "Semua kejadian sudah dicek."; box.append(d); }
   pend.slice(0, 2).forEach(e => {
     const row = document.createElement("div"), tx = document.createElement("div");
     row.className = "conf"; tx.className = "t"; tx.innerHTML = "<b>" + mmss(evTime(e)) + '</b> <span class="' + (e.p === "Merah" ? "m" : "b") + '">' + e.p + "</span><br>" + e.j.toLowerCase() + (e.sub ? " " + e.sub : "") + "?";
@@ -692,7 +692,7 @@ Object.keys(TABS).forEach((k, i) => {
   b.onclick = () => { [...$("tabs").children].forEach(x => x.setAttribute("aria-selected", x === b)); $("pg-Video").hidden = k !== "Video"; $("pg-other").hidden = k === "Video"; $("pg-other").textContent = TABS[k]; if(k !== "Video") video.pause(); };
   $("tabs").append(b);
 });
-EV = gen(ri); render(); resetStats(); initModel();
+EV = []; $("bRonde").disabled = true; render(); resetStats(); initModel();
 </script>
 </body>
 </html>
