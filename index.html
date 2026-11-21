@@ -65,6 +65,7 @@
   .gtd div{text-align:center;font-size:13px}
   .gtd svg{width:100%;max-width:120px;height:auto;margin:0 auto;display:block;color:var(--ink)}
   .guideov ul{margin:6px 0 0;padding-left:20px;font-size:15px;line-height:1.55}
+  .diag{position:absolute;top:calc(env(safe-area-inset-top,0px) + 72px);left:10px;margin:0;font:12px/1.35 ui-monospace,Menlo,Consolas,monospace;background:rgba(0,0,0,.55);padding:6px 8px;border-radius:6px;color:#d4ee3a;max-width:94%;white-space:pre-wrap;pointer-events:none}
   #btnRekorReset{background:var(--glass);color:var(--ink);padding:8px 12px;font-size:14px}
   .stat small{display:block;color:var(--muted);font-size:11px}
   .stat b{font:800 24px/1.1 "Barlow Condensed",sans-serif}
@@ -103,6 +104,7 @@
     <span><b>V</b>-Silat</span>
   </div>
   <div class="recbadge" id="recBadge" hidden><i></i>REC</div>
+  <pre class="diag" id="diag" hidden></pre>
   <div class="count" id="count">0</div>
   <div class="msg" id="msg">Memuat model deteksi gerak…</div>
 
@@ -125,6 +127,7 @@
       <div class="stat"><small>Tinggi tertinggi</small><b><span id="hMax">–</span> <em>cm</em></b></div>
     </div>
     <div class="rincian" id="rincian"></div>
+    <div class="rincian" id="kakiInfo"></div>
 
     <div class="status" id="status"></div>
 
@@ -154,6 +157,9 @@
       </div>
       <small style="color:var(--muted)">Video hanya disimpan di perangkat ini dan tidak dikirim ke internet. Minta izin pesilat sebelum merekam.</small>
       <div class="row">
+        <label class="chk"><input type="checkbox" id="diagOn"> Tampilkan data deteksi (untuk uji)</label>
+      </div>
+      <div class="row">
         <button id="btnRekorReset" type="button">Atur ulang rekor</button>
         <span id="rekorInfo" style="align-self:center;font-size:14px;color:var(--muted)"></span>
       </div>
@@ -165,6 +171,13 @@
             <option value="t">Tendangan T</option>
             <option value="belakang">Tendangan belakang</option>
             <option value="auto">Otomatis (deteksi jenis)</option>
+          </select>
+        </label>
+        <label>Kaki yang dihitung
+          <select id="kaki">
+            <option value="auto" selected>Otomatis (kedua kaki)</option>
+            <option value="kanan">Kaki kanan</option>
+            <option value="kiri">Kaki kiri</option>
           </select>
         </label>
         <label>Tinggi badan (cm)
@@ -194,6 +207,20 @@
           </select>
         </label>
       </div>
+      <div class="row">
+        <label>Perangkat kamera
+          <select id="camDev"><option value="">Otomatis (depan atau belakang)</option></select>
+        </label>
+        <label>Resolusi kamera
+          <select id="camRes"><option value="">Otomatis</option><option value="720">1280x720</option><option value="1080">1920x1080</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <button id="btnFile" type="button">Analisis dari file video</button>
+        <button id="btnLive" type="button" hidden>Kembali ke kamera</button>
+        <input type="file" id="fileAnalisis" accept="video/*" hidden>
+      </div>
+      <small style="color:var(--muted)">Analisis dari file memproses setiap frame tanpa batas waktu, jadi tidak ada tendangan yang terlewat karena HP atau PC kewalahan. Prosesnya lebih lama dari durasi video.</small>
     </div>
 
     <div class="bar">
@@ -267,13 +294,13 @@ const NAMA_JENIS = { depan:"Tendangan depan", sabit:"Tendangan sabit", t:"Tendan
 TIPS.auto = "Mode otomatis: HP di depan atau di samping Anda, seluruh tubuh terlihat. Jenis tendangan dikenali otomatis. Tekan Mulai.";
 for(const k in TIPS) TIPS[k] += " Jika ada orang lain di layar, ketuk pesilat untuk memilihnya.";
 const CAM_TIP = { samping:"HP di samping, tegak lurus arah tendangan, pesilat dan pemegang pad terlihat berdampingan.", diagonal:"HP diagonal depan, sekitar 30-45 derajat dari garis pesilat dan pemegang pad.", depan:"HP di depan pesilat, tidak terhalang pemegang pad." };
-const tip = () => { const j = $("jenis").value; return (j === "auto" ? "Mode otomatis" : NAMA_JENIS[j]) + ": " + CAM_TIP[$("posKamera").value] + " Seluruh tubuh terlihat. Tekan Mulai. Jika ada orang lain di layar, ketuk pesilat untuk memilihnya."; };
+const tip = () => { const j = $("jenis").value; return (j === "auto" ? "Mode otomatis" : NAMA_JENIS[j]) + ": " + CAM_TIP[$("posKamera").value] + " Seluruh tubuh terlihat. Tekan Mulai." + kakiTip() + " Jika ada orang lain di layar, ketuk pesilat untuk memilihnya."; };
 
 const $ = id => document.getElementById(id);
 const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
 let landmarker, running = false, count = 0, startAt = 0, kickTimes = [], speeds = [];
 let lastVideoTime = -1, W = 1, H = 1, legRef = 0;
-const mkLeg = (h,k,a) => ({ h, k, a, up:false, peak:0, hist:[], hit:0, last:0, f:null });
+const mkLeg = (h,k,a) => ({ h, k, a, up:false, peak:0, hist:[], hit:0, last:0, f:null, counted:false, hh:[] });
 let stream = null, lastKickAt = 0;
 const LEGS = [mkLeg(23,25,27), mkLeg(24,26,28)];
 
@@ -288,7 +315,12 @@ function kneeAngle(h,k,a){
 async function startCamera(){
   if(stream) stream.getTracks().forEach(t => t.stop());
   const facing = $("kamera").value;
-  stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ideal:960}, height:{ideal:1280}, frameRate:{ideal:60} }, audio:false });
+  const dev = $("camDev").value, res = $("camRes").value;
+  const vc = { frameRate:{ ideal:60 } };
+  if(dev) vc.deviceId = { exact:dev }; else vc.facingMode = { ideal:facing };
+  if(res){ vc.width = { ideal:res === "1080" ? 1920 : 1280 }; vc.height = { ideal:res === "1080" ? 1080 : 720 }; } else { vc.width = { ideal:960 }; vc.height = { ideal:1280 }; }
+  stream = await navigator.mediaDevices.getUserMedia({ video:vc, audio:false });
+  listCams();
   video.srcObject = stream;
   await video.play();
   W = canvas.width = video.videoWidth; H = canvas.height = video.videoHeight;
@@ -300,7 +332,7 @@ async function startCamera(){
 // Ambang tinggi tendangan: cm di atas pinggul -> satuan panjang kaki
 const sensCm = () => parseFloat($("sens").value);
 const thrValue = () => sensCm() / (0.49 * (parseFloat($("tinggi").value) || 165));
-const THR_TANPA_BATAS = -0.55;   // tanpa batas tinggi: kaki cukup terangkat dari lantai (bukan menapak)
+const THR_TANPA_BATAS = -0.7;   // tanpa batas tinggi: kaki tetap harus terangkat sekitar 30% panjang kaki dari lantai (bukan menapak)
 const useLimit = () => $("batas").checked;
 function showSens(){
   $("sens").disabled = !useLimit();
@@ -338,8 +370,8 @@ function isKick(type, leg, lm, thr){
   if(cam === "samping"){
     const fwd = dx * fd;                      // positif = kaki di depan tubuh
     switch(type){
-      case "depan":    return dy > thr && fwd > 0.3 && ang > 140;
-      case "t":        return dy > thr - 0.3 && fwd > 0.5 && ang > 140;
+      case "depan":    return dy > thr && fwd > 0.25 && ang > 125;
+      case "t":        return dy > thr - 0.3 && fwd > 0.45 && ang > 125;
       case "sabit":    return dy > thr && fwd > 0.2 && ang <= 150;
       case "belakang": return dy > thr - 0.3 && -fwd > 0.5;
     }
@@ -347,8 +379,8 @@ function isKick(type, leg, lm, thr){
   }
   const lim = cam === "diagonal" ? { d:0.9, t:0.5, s:0.3 } : { d:0.6, t:0.7, s:0.4 };
   switch(type){
-    case "depan": return dy > thr && Math.abs(dx) < lim.d && ang > 140;
-    case "t":     return dy > thr - 0.3 && Math.abs(dx) > lim.t && ang > 140;
+    case "depan": return dy > thr && Math.abs(dx) < lim.d && ang > 125;
+    case "t":     return dy > thr - 0.3 && Math.abs(dx) > lim.t && ang > 125;
     case "sabit": return dy > thr && Math.abs(dx) > lim.s && ang <= 150;
     case "belakang": return dy > thr - 0.3 && (-dx * fd) > 0.5;
   }
@@ -395,10 +427,10 @@ function classify(f){
   if(f.ang <= 150) return "sabit";
   return ax >= (diag ? 0.8 : 0.6) ? "t" : "depan";
 }
-function finishKick(leg, type){
+function finishKick(leg, type, li){
   const f = leg.f; leg.f = null;
   if(!f) return;
-  heights.push(f.dy * 0.49 * (parseFloat($("tinggi").value) || 165)); showHeights();   // cm dari pinggul (perkiraan)
+  const hcm = f.dy * 0.49 * (parseFloat($("tinggi").value) || 165); heights.push(hcm); heightsL[li].push(hcm); showHeights();   // cm dari pinggul (perkiraan)
   if(type === "auto"){ kinds[classify(f)]++; showKinds(); }
 }
 // Garis batas tinggi di layar
@@ -428,7 +460,7 @@ function checkRekor(peak, now){
 }
 // Bar: naik mengikuti kecepatan kaki selama tendangan, berhenti di puncak, lalu turun pelan
 function updateGauge(now){
-  const up = LEGS.filter(l => l.up);
+  const up = LEGS.filter(l => l.up && l.counted);
   if(up.length){ gVal = Math.max(...up.map(l => l.peak)); gHold = now + 1500; }
   else if(now > gHold && gVal > 0){ gVal = Math.max(0, gVal - (now - gLast) * 0.03); }
   gLast = now;
@@ -578,6 +610,33 @@ function toVideoXY(ev){
   return { x, y };
 }
 
+const NAMA_KAKI = ["Kiri", "Kanan"];   // indeks 0 = kaki kiri pesilat (landmark 23/25/27), 1 = kaki kanan (24/26/28)
+let cnt = [0, 0], other = [0, 0], speedsL = [[], []], heightsL = [[], []];
+const kakiSel = () => $("kaki").value;
+function kakiTip(){ const k = kakiSel(); return k === "auto" ? "" : " Hanya kaki " + k + " yang dihitung" + (camPos() === "samping" ? " (hadapkan kaki itu ke kamera)." : "."); }
+function kakiWarn(){
+  const k = kakiSel(); if(k === "auto") return "";
+  const o = k === "kiri" ? 1 : 0;
+  return other[o] >= 3 ? "Kaki " + NAMA_KAKI[o].toLowerCase() + " terdeteksi menendang " + other[o] + " kali. Ganti ke Otomatis?" : "";
+}
+function showKaki(){
+  const f = i => NAMA_KAKI[i] + " " + cnt[i] + (speedsL[i].length ? ", " + Math.round(Math.max(...speedsL[i])) + " km/j" : "") + (heightsL[i].length ? ", " + fmtCm(Math.max(...heightsL[i])) + " cm" : "");
+  $("kakiInfo").textContent = (cnt[0] + cnt[1]) ? f(0) + "   |   " + f(1) : "";
+}
+let dgT = 0, dgFps = 0;
+function showDiag(lm, okLegs){
+  const el = $("diag");
+  if(!$("diagOn").checked){ el.hidden = true; return; }
+  const t = performance.now(); if(dgT){ const f = 1000 / Math.max(1, t - dgT); dgFps = dgFps ? dgFps * 0.9 + f * 0.1 : f; } dgT = t;
+  const type = $("jenis").value, thr = curThr(), fd = Math.sign(faceDir) || 1;
+  const lines = ["deteksi " + dgFps.toFixed(0) + " fps | batas dy>" + thr.toFixed(2) + " | kamera " + camPos() + " | hadap " + (fd > 0 ? "kanan" : "kiri")];
+  LEGS.forEach((leg, i) => {
+    if(!okLegs[i]){ lines.push(NAMA_KAKI[i] + ": kurang terlihat (vis " + [leg.h, leg.k, leg.a].map(k => (lm[k].visibility ?? 1).toFixed(1)).join("/") + ")"); return; }
+    const m = legMetrics(leg, lm), kk = type === "auto" ? m.dy > thr : isKick(type, leg, lm, thr);
+    lines.push(NAMA_KAKI[i] + ": dy " + m.dy.toFixed(2) + " maju " + (m.dx * fd).toFixed(2) + " sudut " + Math.round(m.ang) + " | cocok " + (kk ? "YA" : "tidak") + " | hit " + leg.hit + "/4" + (leg.up ? " | NAIK" : ""));
+  });
+  el.textContent = lines.join("\n"); el.hidden = false;
+}
 function ankleSpeed(leg, ank, now){
   leg.hist.push({ t:now, x:ank.x*W, y:ank.y*H });
   while(leg.hist.length > 1 && now - leg.hist[1].t >= 90) leg.hist.shift();
@@ -588,8 +647,8 @@ function ankleSpeed(leg, ank, now){
   return Math.min(200, px * mPerPx / ((now - o.t) / 1000) * 3.6);
 }
 
-function registerKick(){
-  count++; kickTimes.push(performance.now());
+function registerKick(li){
+  count++; cnt[li]++; showKaki(); kickTimes.push(clock());
   $("count").textContent = $("count2").textContent = count;
   const c = $("count"); c.classList.remove("bump"); void c.offsetWidth; c.classList.add("bump");
 }
@@ -601,17 +660,16 @@ function showSpeeds(){
   $("spAvg").textContent = Math.round(speeds.reduce((a,b)=>a+b,0) / speeds.length);
 }
 
-function loop(){
-  if(video.currentTime !== lastVideoTime && video.readyState >= 2){
-    lastVideoTime = video.currentTime;
-    const now = performance.now();
-    const res = landmarker.detectForVideo(video, now);
+function frame(){
+  lastVideoTime = video.currentTime;
+  const now = clock();
+  const res = landmarker.detectForVideo(video, nextTs(now));
     ctx.clearRect(0,0,W,H);
     const trk = track(res.landmarks || []);
     const lm = trk.sel && trk.sel.lm;
-    if(!lm) LEGS.forEach(l => { l.hist = []; l.hit = 0; });
+    if(!lm) LEGS.forEach(l => { l.hist = []; l.hit = 0; l.hh = []; });
     if(running){
-      const m = (target && target.lost > 12) ? "Pesilat tidak terlihat. Pastikan pesilat ada di layar." : (uncertain > 0 ? "Dua orang berdekatan. Hitungan ditahan sebentar." : "");
+      const m = (target && target.lost > 12) ? "Pesilat tidak terlihat. Pastikan pesilat ada di layar." : (uncertain > 0 ? "Dua orang berdekatan. Hitungan ditahan sebentar." : kakiWarn());
       if($("msg").textContent !== m) $("msg").textContent = m;
     }
     const du = new DrawingUtils(ctx);
@@ -621,26 +679,33 @@ function loop(){
       du.drawLandmarks(lm, { color:"#ff7a3d", radius:3 });
       const hx = lm[0].x * W, hy = lm[0].y * H - H * 0.06;   // penanda segitiga di atas kepala pesilat terpilih
       ctx.fillStyle = "#d4ee3a"; ctx.beginPath(); ctx.moveTo(hx, hy + H * 0.02); ctx.lineTo(hx - H * 0.012, hy); ctx.lineTo(hx + H * 0.012, hy); ctx.closePath(); ctx.fill();
-      const need = [23,24,25,26,27,28,0];
-      const ok = need.every(i => (lm[i].visibility ?? 1) > 0.5);
+      const vis = leg => [leg.h, leg.k, leg.a].every(i => (lm[i].visibility ?? 1) > 0.4);
+      const okLegs = LEGS.map(vis);
+      const ok = okLegs.some(Boolean);   // cukup satu kaki terlihat jelas (kaki jauh sering tertutup)
       if(ok){
-        if(!LEGS.some(l => l.up)){   // ukur panjang kaki saat berdiri biasa
-          const cur = (dist(lm[23],lm[25]) + dist(lm[25],lm[27]) + dist(lm[24],lm[26]) + dist(lm[26],lm[28])) / 2;
+        if(!LEGS.some(l => l.up)){   // ukur panjang kaki saat berdiri biasa, dari kaki yang terlihat
+          const lens = LEGS.filter((l, i) => okLegs[i]).map(l => dist(lm[l.h], lm[l.k]) + dist(lm[l.k], lm[l.a]));
+          const cur = lens.reduce((a, b) => a + b, 0) / lens.length;
           legRef = legRef ? legRef*0.9 + cur*0.1 : cur;
           faceDir = faceDir * 0.9 + facingOf(lm) * 0.1;
         }
+        if(legRef) showDiag(lm, okLegs);
         if(legRef) drawLimit(lm, $("jenis").value, curThr());
         if(running && legRef){
           const type = $("jenis").value, thr = curThr();
           const margin = useLimit() ? 0.25 : 0.1;
           for(const leg of LEGS){
+            const li = LEGS.indexOf(leg), isSel = kakiSel() === "auto" || (kakiSel() === "kiri" ? li === 0 : li === 1);
+            if(!okLegs[li]){ leg.hh = []; leg.hit = 0; continue; }
             const sp = ankleSpeed(leg, lm[leg.a], now);
             const test = t => type === "auto" ? legMetrics(leg, lm).dy > t : isKick(type, leg, lm, t);
             if(!leg.up){
               // harus terdeteksi 2 frame berturut-turut, ada jeda antar tendangan
-              leg.hit = (uncertain === 0 && test(thr)) ? leg.hit + 1 : 0;
-              if(leg.hit >= 2 && now - leg.last > 300 && now - lastKickAt > 250){
-                leg.up = true; leg.peak = 0; leg.hit = 0; leg.last = lastKickAt = now; leg.f = null; trackKick(leg, legMetrics(leg, lm), lm); registerKick();
+              const hitNow = uncertain === 0 && test(thr);
+              leg.hh.push(hitNow); if(leg.hh.length > 4) leg.hh.shift();
+              leg.hit = leg.hh.filter(Boolean).length;
+              if(hitNow && leg.hit >= 2 && now - leg.last > 300 && now - lastKickAt > 250){
+                leg.up = true; leg.peak = 0; leg.hit = 0; leg.hh = []; leg.last = lastKickAt = now; leg.f = null; leg.counted = isSel; trackKick(leg, legMetrics(leg, lm), lm); if(isSel) registerKick(li); else other[li]++;
               }
             }else{
               leg.peak = Math.max(leg.peak, sp);
@@ -648,8 +713,11 @@ function loop(){
               // tendangan dianggap selesai hanya jika kaki turun jauh di bawah ambang (histeresis)
               if(!test(thr - margin)){
                 leg.up = false;
-                if(leg.peak > 0){ speeds.push(leg.peak); showSpeeds(); checkRekor(leg.peak, now); }
-                finishKick(leg, type);
+                if(leg.counted){
+                  if(leg.peak > 0){ speeds.push(leg.peak); speedsL[li].push(leg.peak); showSpeeds(); checkRekor(leg.peak, now); }
+                  finishKick(leg, type, li);
+                }else leg.f = null;
+                leg.counted = false; showKaki();
               }
             }
           }
@@ -657,15 +725,20 @@ function loop(){
       }
     }
   }
+function hud(){
   if(running){
-    const s = Math.floor((performance.now() - startAt) / 1000);
+    const s = Math.floor((clock() - startAt) / 1000);
     $("time").textContent = String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0");
-    const t = performance.now();
+    const t = clock();
     kickTimes = kickTimes.filter(k => t - k < 10000);
     $("tempo").textContent = Math.round(kickTimes.length * 6);
   }
   if(rec && cctx) drawComposite();
-  updateGauge(performance.now());
+  updateGauge(clock());
+}
+function loop(){
+  if(!analysis.on && video.currentTime !== lastVideoTime && video.readyState >= 2) frame();
+  hud();
   requestAnimationFrame(loop);
 }
 
@@ -681,11 +754,12 @@ $("stage").addEventListener("click", ev => {   // ketuk pesilat di layar untuk m
 });
 $("tampil").onchange = () => $("stage").classList.toggle("fit", $("tampil").value === "contain");
 $("kamera").onchange = async () => {
-  if(running) return;
+  if(running || analysis.file) return;
   try{ await startCamera(); }catch(e){ setStatus("Kamera gagal dibuka: " + (e.message || e)); }
 };
 $("jenis").onchange = () => { if(!running){ $("msg").textContent = tip(); showKinds(); } updateGuide(); };
 $("posKamera").onchange = () => { if(!running) $("msg").textContent = tip(); updateGuide(); };
+$("kaki").onchange = () => { if(!running) $("msg").textContent = tip(); };
 
 $("btnMenu").onclick = () => {
   const open = $("settings").classList.toggle("open");
@@ -697,16 +771,16 @@ $("btnStart").onclick = () => {
   running = !running;
   const b = $("btnStart");
   if(running){
-    count = 0; kickTimes = []; speeds = []; LEGS.forEach(l => { l.up = false; l.hist = []; l.hit = 0; l.last = 0; l.f = null; }); lastKickAt = 0; heights = []; resetKinds(); gVal = 0; loadRekor(); if(!target && lastSel) lockOn(lastSel);
-    startAt = performance.now();
+    count = 0; kickTimes = []; speeds = []; LEGS.forEach(l => { l.up = false; l.hist = []; l.hit = 0; l.last = 0; l.f = null; l.hh = []; }); lastKickAt = 0; heights = []; cnt = [0, 0]; other = [0, 0]; speedsL = [[], []]; heightsL = [[], []]; LEGS.forEach(l => { l.counted = false; }); showKaki(); resetKinds(); gVal = 0; loadRekor(); if(!target && lastSel) lockOn(lastSel);
+    startAt = clock();
     $("count").textContent = $("count2").textContent = 0;
     ["spLast","spMax","spAvg","hLast","hMax"].forEach(id => $(id).textContent = "–");
     $("msg").textContent = ""; b.textContent = "Selesai"; b.classList.add("on");
-    $("btnSave").disabled = true; $("jenis").disabled = $("kamera").disabled = $("posKamera").disabled = $("rekam").disabled = $("isiRekam").disabled = true; setStatus("");
+    $("btnSave").disabled = true; $("jenis").disabled = $("kamera").disabled = $("posKamera").disabled = $("kaki").disabled = $("rekam").disabled = $("isiRekam").disabled = true; setStatus("");
     startRecording(); $("settings").classList.remove("open"); $("btnMenu").textContent = "Atur"; $("btnMenu").setAttribute("aria-expanded", false);
   }else{
     b.textContent = "Mulai lagi"; b.classList.remove("on"); stopRecording(); target = null; uncertain = 0;
-    $("btnSave").disabled = false; $("jenis").disabled = $("kamera").disabled = $("posKamera").disabled = false; $("isiRekam").disabled = false; $("rekam").disabled = !supportsRec;
+    $("btnSave").disabled = false; $("jenis").disabled = $("kamera").disabled = $("posKamera").disabled = $("kaki").disabled = false; $("isiRekam").disabled = false; $("rekam").disabled = !supportsRec;
   }
 };
 
@@ -720,7 +794,10 @@ $("btnSave").onclick = async () => {
     tercepat:speeds.length ? Math.round(Math.max(...speeds)) : 0,
     rataRata:speeds.length ? Math.round(speeds.reduce((a,b)=>a+b,0)/speeds.length) : 0,
     tinggiTertinggi:heights.length ? Math.round(Math.max(...heights)) : 0,
-    depan:kinds.depan, sabit:kinds.sabit, t:kinds.t, belakang:kinds.belakang
+    depan:kinds.depan, sabit:kinds.sabit, t:kinds.t, belakang:kinds.belakang,
+    kaki:kakiSel(), jumlahKiri:cnt[0], jumlahKanan:cnt[1],
+    tercepatKiri:speedsL[0].length ? Math.round(Math.max(...speedsL[0])) : 0, tercepatKanan:speedsL[1].length ? Math.round(Math.max(...speedsL[1])) : 0,
+    tinggiKiri:heightsL[0].length ? Math.round(Math.max(...heightsL[0])) : "", tinggiKanan:heightsL[1].length ? Math.round(Math.max(...heightsL[1])) : ""
   };
   try{
     await fetch(SHEET_URL, { method:"POST", mode:"no-cors", headers:{ "Content-Type":"text/plain;charset=utf-8" }, body:JSON.stringify(data) });
@@ -754,12 +831,87 @@ $("gBody").innerHTML =
   '<div><svg viewBox="0 0 92 92"><use href="#td-terhalang"/></svg>Di belakang pemegang pad<p>Terhalang. Hindari posisi ini.</p></div></div></div>' +
   KICKS.map(k => '<div class="gcard"><h3>' + k[1] + '</h3><small>' + k[2] + '</small><svg class="kf" viewBox="0 56 270 140" aria-hidden="true"><use href="#k-' + k[0] + '"/></svg><p>' + k[3] + '<br>' + k[4] + '</p></div>').join("") +
   '<div class="gcard"><h3>Pengaturan kamera</h3><ul><li>Tinggi setinggi pinggul sampai dada pesilat, sekitar 1 sampai 1,2 meter.</li><li>Jarak sekitar 3 sampai 4 meter, pesilat dan pemegang pad terlihat utuh.</li><li>HP mendatar (landscape) dan di tripod yang stabil.</li><li>Cahaya terang dan merata, pesilat tidak membelakangi jendela atau lampu.</li><li>Pemegang pad sedikit di samping garis pandang kamera, supaya kaki pesilat tidak tertutup.</li><li>Pakai 60 frame per detik kalau HP mendukung.</li></ul></div>' +
-  '<div class="gcard"><h3>Tips</h3><ul><li>Pilihan Posisi kamera di Atur harus sama dengan posisi HP yang sebenarnya.</li><li>Jika ada orang lain di layar, jeda lalu ketuk pesilat untuk memilihnya (segitiga kuning).</li><li>Pilih jenis tendangan sendiri untuk hasil yang paling andal. Mode otomatis paling cocok untuk membedakan depan dan belakang dari samping.</li><li>Uji akurasi: lakukan 20 tendangan, hitung manual, lalu bandingkan dengan layar.</li><li>Minta izin pesilat (dan orang tua atau wali untuk yang di bawah umur) sebelum merekam.</li></ul></div>';
+  '<div class="gcard"><h3>Tips</h3><ul><li>Pilihan Posisi kamera di Atur harus sama dengan posisi HP yang sebenarnya.</li><li>Jika ada orang lain di layar, jeda lalu ketuk pesilat untuk memilihnya (segitiga kuning).</li><li>Pilih jenis tendangan sendiri untuk hasil yang paling andal. Mode otomatis paling cocok untuk membedakan depan dan belakang dari samping.</li><li>Menu Kaki yang dihitung: pilih Kanan atau Kiri untuk drill satu kaki, atau Otomatis untuk kedua kaki. Dari kamera samping, hadapkan kaki yang dipilih ke kamera.</li><li>Analisis dari file video (di Atur): rekam dulu dengan kamera 60 fps, lalu analisis. Semua frame diproses, jadi hitungan paling akurat. Pilih Perangkat kamera di Atur untuk memakai kamera eksternal.</li><li>Uji akurasi: lakukan 20 tendangan, hitung manual, lalu bandingkan dengan layar.</li><li>Minta izin pesilat (dan orang tua atau wali untuk yang di bawah umur) sebelum merekam.</li></ul></div>';
 const openGuide = () => { $("guide").hidden = false; $("guide").scrollTop = 0; $("gClose").focus(); };
 const closeGuide = () => { $("guide").hidden = true; $("btnGuide").focus(); };
 $("btnGuide").onclick = openGuide; $("gClose").onclick = closeGuide;
 document.addEventListener("keydown", e => { if(e.key === "Escape" && !$("guide").hidden) closeGuide(); });
 updateGuide();
+
+// ---------- Analisis dari file video, daftar kamera ----------
+const analysis = { on:false, t:0, file:null, stop:false, fps:30 };
+let tsBase = 0, lastTs = 0, fileURL = null;
+const clock = () => analysis.on ? analysis.t : performance.now();
+function nextTs(now){ lastTs = Math.max(lastTs + 1, analysis.on ? tsBase + now : now); return lastTs; }
+const seekTo = t => new Promise(res => { const h = () => { video.removeEventListener("seeked", h); res(); }; video.addEventListener("seeked", h); video.currentTime = t; });
+function detectFps(){
+  if(!("requestVideoFrameCallback" in HTMLVideoElement.prototype)) return Promise.resolve(30);
+  return new Promise(res => {
+    let first = null, done = false;
+    const fin = f => { if(done) return; done = true; video.pause(); res(f); };
+    const cb = (_, m) => {
+      if(first === null) first = m.mediaTime;
+      else if(m.mediaTime - first > 0){ const f = 1 / (m.mediaTime - first); fin([24, 25, 30, 48, 50, 60, 120].reduce((x, y) => Math.abs(y - f) < Math.abs(x - f) ? y : x)); return; }
+      video.requestVideoFrameCallback(cb);
+    };
+    video.requestVideoFrameCallback(cb); video.play().catch(() => fin(30)); setTimeout(() => fin(30), 2500);
+  });
+}
+async function listCams(){
+  try{
+    const cur = $("camDev").value, devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+    $("camDev").replaceChildren(new Option("Otomatis (depan atau belakang)", ""), ...devs.map((d, i) => new Option(d.label || "Kamera " + (i + 1), d.deviceId)));
+    if(devs.some(d => d.deviceId === cur)) $("camDev").value = cur;
+  }catch(e){}
+}
+if(navigator.mediaDevices) navigator.mediaDevices.addEventListener("devicechange", listCams);
+$("camDev").onchange = $("camRes").onchange = async () => {
+  if(running || analysis.file) return;
+  try{ await startCamera(); }catch(e){ setStatus("Kamera gagal dibuka: " + (e.message || e)); }
+};
+$("btnFile").onclick = () => { if(!landmarker){ setStatus("Model belum siap."); return; } $("fileAnalisis").click(); };
+$("fileAnalisis").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if(!f || !landmarker) return;
+  if(running) $("btnStart").click();
+  if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+  analysis.file = f; analysis.on = false;
+  if(fileURL) URL.revokeObjectURL(fileURL);
+  fileURL = URL.createObjectURL(f); video.srcObject = null; video.src = fileURL; video.muted = true;
+  setStatus("Memuat video…");
+  await new Promise(r => video.addEventListener("loadeddata", r, { once:true }));
+  W = canvas.width = video.videoWidth; H = canvas.height = video.videoHeight;
+  $("stage").classList.remove("mirror"); legRef = 0; lastVideoTime = -1; target = null; uncertain = 0;
+  LEGS.forEach(l => { l.up = false; l.hist = []; l.hit = 0; l.hh = []; });
+  setStatus("Mendeteksi fps video…");
+  analysis.fps = await detectFps(); await seekTo(0);
+  frame();
+  $("btnLive").hidden = false; $("btnStart").disabled = false; $("btnSave").disabled = true;
+  $("msg").textContent = "";
+  setStatus("Video siap (" + analysis.fps + " fps, " + Math.round(video.duration) + " detik). Ketuk pesilat jika ada orang lain, lalu tekan Mulai.");
+};
+$("btnLive").onclick = async () => {
+  if(running) { analysis.stop = true; return; }
+  analysis.file = null; analysis.on = false; $("btnLive").hidden = true;
+  video.removeAttribute("src"); video.load(); target = null;
+  try{ await startCamera(); $("msg").textContent = tip(); setStatus(""); }catch(e){ setStatus("Kamera gagal dibuka: " + (e.message || e)); }
+};
+const startNormal = $("btnStart").onclick;
+$("btnStart").onclick = async () => {
+  if(!analysis.file) return startNormal();
+  if(running){ analysis.stop = true; return; }
+  analysis.on = true; analysis.t = 0; analysis.stop = false; tsBase = lastTs + 1000;
+  startNormal();   // atur ulang statistik dan kunci pesilat, lalu mulai
+  const fps = analysis.fps, n = Math.floor(video.duration * fps);
+  for(let i = 0; i < n && !analysis.stop; i++){
+    analysis.t = i / fps * 1000;
+    await seekTo(i / fps + 0.001);
+    frame(); hud();
+    if(i % 4 === 0){ $("msg").textContent = "Menganalisis " + Math.round(i / n * 100) + "%"; await new Promise(r => setTimeout(r, 0)); }
+  }
+  if(running) startNormal();   // selesai: aktifkan tombol Simpan
+  analysis.on = false; $("msg").textContent = "";
+  setStatus("Analisis selesai: " + count + " tendangan dari " + Math.round(analysis.t / 1000) + " detik video.");
+};
 
 loadRekor();
 init();
