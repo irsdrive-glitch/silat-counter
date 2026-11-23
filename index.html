@@ -86,6 +86,9 @@
   .settings{display:none;gap:10px;padding:12px;border-radius:10px;background:var(--glass);
     backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);max-height:45dvh;overflow:auto}
   .settings.open{display:grid}
+  .gh{margin:4px 0 0;padding-top:8px;border-top:1px solid #2a3c61;font:600 13px Barlow,sans-serif;color:var(--lime);text-transform:uppercase;letter-spacing:.06em}
+  .settings .gh:first-child{margin:0;padding-top:0;border-top:0}
+  .stage.cfg .msg{top:calc(env(safe-area-inset-top,0px) + 108px);font-size:15px}
   .row{display:flex;gap:8px;flex-wrap:wrap}
   label{font-size:14px;color:var(--muted);display:grid;gap:4px;flex:1;min-width:130px}
   input[type=text],input[type=number],select{width:100%;padding:10px;border-radius:8px;border:1px solid #2a3c61;background:rgba(12,20,36,.7);color:var(--ink);font-size:16px}
@@ -132,48 +135,12 @@
     <div class="status" id="status"></div>
 
     <div class="settings" id="settings">
+      <h3 class="gh">Atlet dan latihan</h3>
       <div class="row">
-        <label>Posisi kamera
-          <select id="posKamera">
-            <option value="samping" selected>Samping (tegak lurus arah tendangan)</option>
-            <option value="diagonal">Diagonal depan (30-45°)</option>
-            <option value="depan">Depan (tanpa pemegang pad)</option>
-          </select>
+        <label>Nama pesilat<input type="text" id="nama" placeholder="Nama" autocomplete="off"></label>
+        <label>Tinggi badan (cm)
+          <input type="number" id="tinggi" value="165" min="100" max="220" inputmode="numeric">
         </label>
-      </div>
-      <div class="camrow">
-        <svg class="td" viewBox="0 0 92 92" aria-hidden="true"><use id="tdUse" href="#td-samping"/></svg>
-        <svg class="kf" id="kfSvg" viewBox="0 56 270 140" aria-hidden="true"><use id="kfUse" href="#k-depan"/></svg>
-        <p class="hint" id="camNote"></p>
-      </div>
-      <div class="row">
-        <label class="chk"><input type="checkbox" id="rekam"> Rekam video sesi</label>
-        <label>Isi rekaman
-          <select id="isiRekam">
-            <option value="overlay">Video + kerangka dan angka</option>
-            <option value="polos">Video polos</option>
-          </select>
-        </label>
-      </div>
-      <small style="color:var(--muted)">Video hanya disimpan di perangkat ini dan tidak dikirim ke internet. Minta izin pesilat sebelum merekam.</small>
-      <div class="row">
-        <label class="chk"><input type="checkbox" id="saring" checked> Saring gerakan ancang-ancang</label>
-        <label>Kecepatan minimum
-          <select id="speedMin">
-            <option value="0">Mati (hanya jangkauan)</option>
-            <option value="6" selected>Rendah (6 km/j)</option>
-            <option value="12">Sedang (12 km/j)</option>
-            <option value="20">Tinggi (20 km/j)</option>
-          </select>
-        </label>
-      </div>
-      <small style="color:var(--muted)">Aktif: kaki harus menjangkau penuh atau cukup cepat agar dihitung. Hitungan bertambah setelah kaki kembali turun.</small>
-      <div class="row">
-        <label class="chk"><input type="checkbox" id="diagOn"> Tampilkan data deteksi (untuk uji)</label>
-      </div>
-      <div class="row">
-        <button id="btnRekorReset" type="button">Atur ulang rekor</button>
-        <span id="rekorInfo" style="align-self:center;font-size:14px;color:var(--muted)"></span>
       </div>
       <div class="row">
         <label>Jenis latihan
@@ -192,18 +159,30 @@
             <option value="kiri">Kaki kiri</option>
           </select>
         </label>
-        <label>Tinggi badan (cm)
-          <input type="number" id="tinggi" value="165" min="100" max="220" inputmode="numeric">
-        </label>
       </div>
       <div class="row">
-        <label>Nama pesilat<input type="text" id="nama" placeholder="Nama" autocomplete="off"></label>
         <div style="flex:1;min-width:130px;display:grid;gap:8px">
           <label class="chk"><input type="checkbox" id="batas" checked> Batasi tinggi tendangan</label>
           <label>Tinggi minimum: <b id="sensVal"></b>
             <input type="range" id="sens" min="-40" max="60" step="2" value="-8">
           </label>
         </div>
+      </div>
+
+      <h3 class="gh">Kamera</h3>
+      <div class="row">
+        <label>Posisi kamera
+          <select id="posKamera">
+            <option value="samping" selected>Samping (tegak lurus arah tendangan)</option>
+            <option value="diagonal">Diagonal depan (30-45°)</option>
+            <option value="depan">Depan (tanpa pemegang pad)</option>
+          </select>
+        </label>
+      </div>
+      <div class="camrow">
+        <svg class="td" viewBox="0 0 92 92" aria-hidden="true"><use id="tdUse" href="#td-samping"/></svg>
+        <svg class="kf" id="kfSvg" viewBox="0 56 270 140" aria-hidden="true"><use id="kfUse" href="#k-depan"/></svg>
+        <p class="hint" id="camNote"></p>
       </div>
       <div class="row">
         <label>Kamera
@@ -227,12 +206,45 @@
           <select id="camRes"><option value="">Otomatis</option><option value="720">1280x720</option><option value="1080">1920x1080</option></select>
         </label>
       </div>
+
+      <h3 class="gh">Deteksi</h3>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="saring" checked> Saring gerakan ancang-ancang</label>
+        <label>Kecepatan minimum
+          <select id="speedMin">
+            <option value="0">Mati (hanya jangkauan)</option>
+            <option value="6" selected>Rendah (6 km/j)</option>
+            <option value="12">Sedang (12 km/j)</option>
+            <option value="20">Tinggi (20 km/j)</option>
+          </select>
+        </label>
+      </div>
+      <small style="color:var(--muted)">Aktif: kaki harus menjangkau penuh atau cukup cepat agar dihitung. Hitungan bertambah setelah kaki kembali turun.</small>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="diagOn"> Tampilkan data deteksi (untuk uji)</label>
+      </div>
+
+      <h3 class="gh">Rekaman dan data</h3>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="rekam"> Rekam video sesi</label>
+        <label>Isi rekaman
+          <select id="isiRekam">
+            <option value="overlay">Video + kerangka dan angka</option>
+            <option value="polos">Video polos</option>
+          </select>
+        </label>
+      </div>
+      <small style="color:var(--muted)">Video hanya disimpan di perangkat ini dan tidak dikirim ke internet. Minta izin pesilat sebelum merekam.</small>
       <div class="row">
         <button id="btnFile" type="button">Analisis dari file video</button>
         <button id="btnLive" type="button" hidden>Kembali ke kamera</button>
         <input type="file" id="fileAnalisis" accept="video/*" hidden>
       </div>
       <small style="color:var(--muted)">Analisis dari file memproses setiap frame tanpa batas waktu, jadi tidak ada tendangan yang terlewat karena HP atau PC kewalahan. Prosesnya lebih lama dari durasi video.</small>
+      <div class="row">
+        <button id="btnRekorReset" type="button">Atur ulang rekor</button>
+        <span id="rekorInfo" style="align-self:center;font-size:14px;color:var(--muted)"></span>
+      </div>
     </div>
 
     <div class="bar">
@@ -790,6 +802,7 @@ $("kaki").onchange = () => { if(!running) $("msg").textContent = tip(); };
 
 $("btnMenu").onclick = () => {
   const open = $("settings").classList.toggle("open");
+  $("stage").classList.toggle("cfg", open);
   $("btnMenu").setAttribute("aria-expanded", open);
   $("btnMenu").textContent = open ? "Tutup" : "Atur";
 };
@@ -804,7 +817,7 @@ $("btnStart").onclick = () => {
     ["spLast","spMax","spAvg","hLast","hMax"].forEach(id => $(id).textContent = "–");
     $("msg").textContent = ""; b.textContent = "Selesai"; b.classList.add("on");
     $("btnSave").disabled = true; $("jenis").disabled = $("kamera").disabled = $("posKamera").disabled = $("kaki").disabled = $("rekam").disabled = $("isiRekam").disabled = true; setStatus("");
-    startRecording(); $("settings").classList.remove("open"); $("btnMenu").textContent = "Atur"; $("btnMenu").setAttribute("aria-expanded", false);
+    startRecording(); $("settings").classList.remove("open"); $("stage").classList.remove("cfg"); $("btnMenu").textContent = "Atur"; $("btnMenu").setAttribute("aria-expanded", false);
   }else{
     b.textContent = "Mulai lagi"; b.classList.remove("on"); stopRecording(); target = null; uncertain = 0;
     $("btnSave").disabled = false; $("jenis").disabled = $("kamera").disabled = $("posKamera").disabled = $("kaki").disabled = false; $("isiRekam").disabled = false; $("rekam").disabled = !supportsRec;
